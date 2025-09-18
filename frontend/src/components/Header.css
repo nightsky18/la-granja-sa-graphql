@@ -1,0 +1,15 @@
+/* components/Header.css */
+.app-header{
+  position: sticky; top: 0; z-index: 1000;
+  background: #fff;
+  border-bottom: 2px solid var(--border);
+}
+.header-inner{
+  display: flex; align-items: center; gap: var(--space-3);
+  max-width: 1080px; margin: 0 auto; padding: 10px var(--space-4);
+}
+.logo{ height: 48px; width: auto; object-fit: contain; }
+.brand{ margin: 0; font-size: var(--h2); color: var(--color-accent); }
+.nav{ margin-left: auto; display: flex; gap: var(--space-4); }
+.nav a{ color: var(--color-primary-900); font-weight: 700; }
+.nav a:hover{ color: var(--color-primary); }

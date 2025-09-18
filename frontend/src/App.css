@@ -1,0 +1,12 @@
+/* App.css */
+.main{
+  padding: var(--space-4) 0;
+}
+.section{
+  margin-bottom: var(--space-5);
+}
+.section h2{
+  font-size: var(--h2);
+  margin: 0 0 var(--space-3);
+  color: var(--color-primary-900);
+}
