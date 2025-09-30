@@ -51,6 +51,10 @@ const typeDefs = gql`
     # Porcinos
     porcinos: [Porcino!]!
     porcino(id: ID!): Porcino
+  # Reportes
+    trazabilidadPorAlimento(alimentacionId: ID, rango: RangoFechasInput): [TrazabilidadRow!]!
+  consumoPorCliente(rango: RangoFechasInput): [ConsumoClienteRow!]!
+  consumoPorAlimentacion(rango: RangoFechasInput): [ConsumoAlimentoRow!]!
   }
 
   input ClienteInput {
@@ -105,6 +109,34 @@ input AlimentacionUpdateInput {
     alimentacionId: ID!
     dosis: Float!
   }
+
+  type TrazabilidadRow {
+  porcino: String
+  cliente: String
+  alimento: String
+  dosis: Float
+  fecha: Date
+}
+
+type ConsumoClienteRow {
+  cliente: String
+  totalLbs: Float
+  eventos: Int
+  porcinos: Int
+}
+
+type ConsumoAlimentoRow {
+  alimento: String
+  eventos: Int
+  totalLbs: Float
+  porcentaje: Float
+}
+
+input RangoFechasInput {
+  fechaInicio: String
+  fechaFin: String
+}
+
 
   type Mutation {
     # Clientes
