@@ -1,23 +1,26 @@
 import React, { useEffect, useState } from 'react';
 import Modal from 'react-modal';
 import Swal from 'sweetalert2';
-
+import { useAlimentaciones } from '../hooks/useAlimentaciones';
+import { usePorcinosMin } from '../hooks/usePorcinosMin';
 const API = 'http://localhost:5000/api/alimentaciones';
 
 function AlimentarPorcinoInline({ alimentacion, onDone }) {
-  const [isOpen, setOpen] = useState(false);
-  const [porcinos, setPorcinos] = useState([]);
+ const [isOpen, setOpen] = useState(false);
   const [form, setForm] = useState({ porcinoId: '', dosis: '' });
   const [loading, setLoading] = useState(false);
+  const { porcinos, alimentar } = usePorcinosMin();
 
   useEffect(() => {
-    if (isOpen) {
-      fetch('http://localhost:5000/api/porcinos')
-        .then(r => r.json())
-        .then(setPorcinos)
-        .catch(() => setPorcinos([]));
-      setForm({ porcinoId: '', dosis: '' });
-    }
+    if (isOpen) setForm({ porcinoId: '', dosis: '' });
+  }, [isOpen]);
+
+  function handleChange(e) {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  }
+
+   useEffect(() => {
+    if (isOpen) setForm({ porcinoId: '', dosis: '' });
   }, [isOpen]);
 
   function handleChange(e) {
@@ -26,78 +29,48 @@ function AlimentarPorcinoInline({ alimentacion, onDone }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.porcinoId) {
-      return Swal.fire('Error', 'Seleccione un porcino.', 'error');
-    }
-    if (!form.dosis || Number(form.dosis) <= 0) {
-      return Swal.fire('Error', 'Ingrese una dosis válida (mayor que 0).', 'error');
-    }
+    if (!form.porcinoId) return Swal.fire('Error', 'Seleccione un porcino.', 'error');
+    if (!form.dosis || Number(form.dosis) <= 0) return Swal.fire('Error', 'Ingrese una dosis válida (mayor que 0).', 'error');
 
-    Swal.fire({
-      title: 'Guardando...',
-      allowOutsideClick: false,
-      didOpen: () => Swal.showLoading(),
-      customClass: { popup: 'card' },
-      buttonsStyling: false
-    }); // loader [15]
-
+    Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:5000/api/porcinos/${form.porcinoId}/alimentar`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ alimentacionId: alimentacion._id, dosis: Number(form.dosis) })
+      await alimentar({
+        variables: { input: { porcinoId: form.porcinoId, alimentacionId: alimentacion._id, dosis: Number(form.dosis) } }
       });
-      const text = await res.text();
-      let data; try { data = JSON.parse(text); } catch { data = { mensaje: text }; }
       Swal.close();
-
-      if (!res.ok) {
-        const msg = data?.mensaje || 'Error al asignar alimentación';
-        return Swal.fire('Error', msg, 'error');
-      }
-
       await Swal.fire('¡Listo!', 'Alimentación registrada y stock actualizado.', 'success');
       setOpen(false);
       onDone?.();
-    } catch {
+    } catch (err) {
       Swal.close();
-      Swal.fire('Error', 'Error en la conexión al servidor.', 'error');
+      return Swal.fire('Error', err?.message || 'Error al asignar alimentación', 'error');
     } finally {
       setLoading(false);
     }
   }
+ const listaPorcinos = porcinos.data?.porcinos || [];
 
   return (
     <>
-      <button className="btn btn-outline" onClick={() => setOpen(true)}>🐷➕</button>
-      <Modal isOpen={isOpen} onRequestClose={() => setOpen(false)} ariaHideApp={false}>
-        <h3>Asignar alimentación a porcino</h3>
-        <form onSubmit={handleSubmit} className="card" style={{ border: 'none', boxShadow: 'none', padding: 0 }}>
-          <div className="form-row">
-            <div>
-              <label>Porcino</label>
-              <select name="porcinoId" value={form.porcinoId} onChange={handleChange} required>
-                <option value="">Seleccione</option>
-                {porcinos.map(p => (
-                  <option key={p._id} value={p._id}>
-                    {p.identificacion} - {p.cliente?.nombres} {p.cliente?.apellidos}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label>Dosis (lbs)</label>
-              <input type="number" name="dosis" value={form.dosis} onChange={handleChange} min="0.1" step="0.1" required />
-            </div>
+      <button className="btn btn-sm btn-outline-success" onClick={() => setOpen(true)}>Alimentar</button>
+      <Modal isOpen={isOpen} onRequestClose={() => setOpen(false)} ariaHideApp={false} contentLabel="Alimentar porcino">
+        <h5>Asignar alimentación a porcino</h5>
+        <form onSubmit={handleSubmit}>
+          <div className="mb-3">
+            <label>Porcino</label>
+            <select name="porcinoId" className="form-select" value={form.porcinoId} onChange={handleChange}>
+              <option value="">Seleccione...</option>
+              {listaPorcinos.map(p => <option key={p._id} value={p._id}>{p.identificacion}</option>)}
+            </select>
           </div>
-          <div className="form-actions">
-            <button className="btn btn-primary" type="submit" disabled={loading}>
-              {loading ? 'Guardando...' : 'Guardar'}
-            </button>
-            <button className="btn btn-outline" type="button" onClick={() => setOpen(false)} disabled={loading}>
-              Cancelar
-            </button>
+          <div className="mb-3">
+            <label>Dosis (lbs)</label>
+            <input name="dosis" type="number" min="0.1" step="0.1" className="form-control" value={form.dosis} onChange={handleChange} />
+          </div>
+          <div className="d-flex gap-2">
+            <button className="btn btn-primary" type="submit" disabled={loading}>Guardar</button>
+            <button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>Cancelar</button>
           </div>
         </form>
       </Modal>
@@ -105,15 +78,21 @@ function AlimentarPorcinoInline({ alimentacion, onDone }) {
   );
 }
 
-export default function AlimentacionCRUD() {
-  const [list, setList] = useState([]);
-  const [form, setForm] = useState({ id: '', nombre: '', descripcion: '', cantidadLibras: '' });
+export default function AlimentacionCrud() {
+const { list, crear, actualizar, eliminar } = useAlimentaciones();
+  const [items, setItems] = useState([]);
+  const [form, setForm] = useState({ id: '', nombre: '', descripcion: '', cantidadLibras: 0 });
   const [editId, setEditId] = useState(null);
 
-  useEffect(() => { cargar(); }, []);
-  function cargar() { fetch(API).then(r => r.json()).then(setList); }
+ useEffect(() => {
+    if (list.data?.alimentaciones) setItems(list.data.alimentaciones);
+  }, [list.data]);
 
-  function handleChange(e) { setForm({ ...form, [e.target.name]: e.target.value }); }
+
+ function handleChange(e) {
+    const { name, value } = e.target;
+    setForm((f) => ({ ...f, [name]: name === 'cantidadLibras' ? Number(value) : value }));
+  }
 
   function validar() {
     if (!form.id?.trim()) return Swal.fire('Error', 'El ID es obligatorio y debe ser único.', 'error'), false;
@@ -124,85 +103,65 @@ export default function AlimentacionCRUD() {
     return true;
   }
 
-  async function save(e) {
-    e.preventDefault();
-    if (!validar()) return;
-
-    Swal.fire({ title: 'Guardando...', allowOutsideClick: false, didOpen: () => Swal.showLoading(), buttonsStyling: false });
-
-    const method = editId ? 'PUT' : 'POST';
-    const url = editId ? `${API}/${editId}` : API;
-
-    try {
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: form.id.trim(),
-          nombre: form.nombre.trim(),
-          descripcion: form.descripcion.trim(),
-          cantidadLibras: Number(form.cantidadLibras)
-        })
-      });
-
-      const text = await res.text();
-      let data; try { data = JSON.parse(text); } catch { data = { mensaje: text }; }
-
-      Swal.close();
-
-      if (!res.ok) {
-        const isDuplicate = res.status === 400 && (
-          /id.*(ya )?existe/i.test(data?.mensaje || '') ||
-          /duplicate key/i.test(data?.mensaje || '') ||
-          data?.code === 11000
-        );
-        if (isDuplicate) {
-          return Swal.fire('ID duplicado', 'El ID de alimentación ya está registrado en el sistema.', 'error');
-        }
-        return Swal.fire('Error', data?.mensaje || 'No se pudo guardar la alimentación.', 'error');
-      }
-
-      await Swal.fire('Éxito', editId ? 'Alimentación actualizada correctamente.' : 'Alimentación creada correctamente.', 'success');
-
-      setForm({ id: '', nombre: '', descripcion: '', cantidadLibras: '' });
-      setEditId(null);
-      cargar();
-    } catch {
-      Swal.close();
-      Swal.fire('Error', 'Error de conexión con el servidor.', 'error');
-    }
+    function reset() {
+    setForm({ id: '', nombre: '', descripcion: '', cantidadLibras: 0 });
+    setEditId(null);
   }
 
+   async function save(e) {
+    e.preventDefault();
+    if (!form.nombre.trim()) return Swal.fire('Error', 'El nombre es requerido.', 'error');
+    if (form.cantidadLibras < 0) return Swal.fire('Error', 'El stock no puede ser negativo.', 'error');
+
+    try {
+      if (editId) {
+        await actualizar({ variables: { id: editId, data: {
+          nombre: form.nombre,
+          descripcion: form.descripcion,
+          cantidadLibras: Number(form.cantidadLibras),
+        } } });
+      } else {
+        await crear({ variables: { data: {
+          id: form.id,
+          nombre: form.nombre,
+          descripcion: form.descripcion,
+          cantidadLibras: Number(form.cantidadLibras),
+        } } });
+      }
+      await Swal.fire('¡Éxito!', `Alimentación ${editId ? 'actualizada' : 'creada'} correctamente`, 'success');
+      reset();
+    } catch (err) {
+      const msg = err?.message || 'No se pudo guardar';
+      return Swal.fire('Error', msg, 'error');
+    }
+  }
+function edit(item) {
+    setForm({
+      id: item.id,
+      nombre: item.nombre || '',
+      descripcion: item.descripcion || '',
+      cantidadLibras: item.cantidadLibras ?? 0,
+    });
+    setEditId(item._id);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
   
 
   async function del(id) {
     const ok = await Swal.fire({
       title: '¿Eliminar alimentación?',
-      text: 'Esta acción no se puede deshacer.',
       icon: 'warning',
       showCancelButton: true,
       confirmButtonText: 'Sí, eliminar',
       cancelButtonText: 'Cancelar',
-      customClass: { confirmButton: 'btn btn-danger', cancelButton: 'btn btn-outline' },
-      buttonsStyling: false
-    }); // customClass + buttonsStyling [13][15]
+    });
     if (!ok.isConfirmed) return;
-
     try {
-      const res = await fetch(`${API}/${id}`, { method: 'DELETE' });
-      const contentType = res.headers.get('Content-Type') || '';
-      const isJson = contentType.includes('application/json');
-      const text = await res.text();
-      const data = isJson && text ? JSON.parse(text) : (text ? { mensaje: text } : {});
-
-      if (!res.ok) {
-        return Swal.fire('Error', data?.mensaje || 'No se pudo eliminar la alimentación.', 'error');
-      }
-
-      Swal.fire('Eliminado', 'Alimentación eliminada correctamente.', 'success');
-      cargar();
-    } catch {
-      Swal.fire('Error', 'Error de conexión al eliminar.', 'error');
+      await eliminar({ variables: { id } });
+      await Swal.fire('Eliminada', 'La alimentación fue eliminada.', 'success');
+    } catch (err) {
+      const msg = err?.message || 'No se pudo eliminar';
+      return Swal.fire('Error', msg, 'error');
     }
   }
 
@@ -271,7 +230,7 @@ export default function AlimentacionCRUD() {
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     <button className="btn btn-outline" onClick={() => edit(a)}>✏️</button>
                     <button className="btn btn-danger" onClick={() => del(a._id)}>🗑️</button>
-                    <AlimentarPorcinoInline alimentacion={a} onDone={cargar} />
+                    <AlimentarPorcinoInline alimentacion={a} onDone={() => list.refetch()} />
                   </div>
                 </td>
               </tr>

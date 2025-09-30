@@ -5,7 +5,8 @@ import App from './App';
 import './styles/tockens.css';
 import './styles/base.css';
 import './components/Header.css';
-
+import { ApolloProvider } from '@apollo/client';
+import { apolloClient } from './graphql/client';
 
 
 import reportWebVitals from './reportWebVitals';
@@ -13,7 +14,9 @@ import reportWebVitals from './reportWebVitals';
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <App />
+    <ApolloProvider client={apolloClient}>
+      <App />
+    </ApolloProvider>
   </React.StrictMode>
 );
 

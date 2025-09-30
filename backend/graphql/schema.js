@@ -69,18 +69,21 @@ const typeDefs = gql`
     telefono: String
   }
 
-  input AlimentacionInput {
-    id: String!
-    nombre: String!
-    descripcion: String
-    cantidadLibras: Float!
-  }
+ input AlimentacionInput {
+  id: String!
+  nombre: String!
+  descripcion: String
+  cantidadLibras: Float!
+}
 
-  input AlimentacionUpdateInput {
-    nombre: String
-    descripcion: String
-    cantidadLibras: Float
-  }
+input AlimentacionUpdateInput {
+  nombre: String
+  descripcion: String
+  cantidadLibras: Float
+}
+
+
+
 
   input PorcinoInput {
     identificacion: String!

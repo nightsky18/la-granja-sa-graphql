@@ -1,24 +1,29 @@
 import React, { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
+import { useClientes } from '../hooks/useClientes';
 
-const API = 'http://localhost:5000/api/clientes';
 
 export default function ClienteCRUD({ minimalMode, onSaved, onCancel }) {
+const { list, crear, actualizar, eliminar } = useClientes();
   const [clientes, setClientes] = useState([]);
   const [form, setForm] = useState({ cedula: '', nombres: '', apellidos: '', direccion: '', telefono: '' });
   const [editId, setEditId] = useState(null);
 
-  useEffect(() => { cargar(); }, []);
-  function cargar() { fetch(API).then(res => res.json()).then(setClientes); }
+
+useEffect(() => {
+    if (list.data?.clientes) setClientes(list.data.clientes);
+  }, [list.data]);
+
 
   function handleChange(e) {
     setForm({ ...form, [e.target.name]: e.target.value });
   }
 
+  
   async function save(e) {
     e.preventDefault();
 
-    // Validaciones básicas frontend
+    // Validaciones existentes
     if (!/^\d{10}$/.test(form.telefono)) {
       return Swal.fire('Error', 'Teléfono debe tener exactamente 10 números.', 'error');
     }
@@ -29,46 +34,45 @@ export default function ClienteCRUD({ minimalMode, onSaved, onCancel }) {
       return Swal.fire('Error', 'La dirección es obligatoria.', 'error');
     }
 
-    const method = editId ? 'PUT' : 'POST';
-    const url = editId ? `${API}/${editId}` : API;
-
     try {
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
-      });
-      const text = await res.text();
-      let data; try { data = JSON.parse(text); } catch { data = { mensaje: text }; }
-
-      if (!res.ok) {
-        if (data.mensaje && /cedula/i.test(data.mensaje)) {
-          return Swal.fire('Error', 'La cédula ya está registrada.', 'error');
-        }
-        return Swal.fire('Error', data.mensaje || 'Error al guardar cliente', 'error');
+      if (editId) {
+        await actualizar({ variables: { id: editId, data: {
+          cedula: form.cedula,
+          nombres: form.nombres,
+          apellidos: form.apellidos,
+          direccion: form.direccion,
+          telefono: form.telefono,
+        } } });
+      } else {
+        await crear({ variables: { data: form } });
       }
 
       await Swal.fire('¡Éxito!', `Cliente ${editId ? 'actualizado' : 'creado'} correctamente`, 'success');
       setForm({ cedula: '', nombres: '', apellidos: '', direccion: '', telefono: '' });
       setEditId(null);
-      cargar();
       onSaved?.();
     } catch (error) {
-      Swal.fire('Error', 'Error en la conexión con el servidor.', 'error');
+      const msg = error?.message || 'Error al guardar cliente';
+      if (/duplicado|cedula|c[eé]dula/i.test(msg)) {
+        return Swal.fire('Error', 'La cédula ya está registrada.', 'error');
+      }
+      return Swal.fire('Error', msg, 'error');
     }
   }
 
-  function edit(cli) {
+
+function edit(cli) {
     setForm({
       cedula: cli.cedula || '',
       nombres: cli.nombres || '',
       apellidos: cli.apellidos || '',
       direccion: cli.direccion || '',
-      telefono: cli.telefono || ''
+      telefono: cli.telefono || '',
     });
     setEditId(cli._id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
+
 
   async function del(id) {
     const ok = await Swal.fire({
@@ -79,26 +83,16 @@ export default function ClienteCRUD({ minimalMode, onSaved, onCancel }) {
       confirmButtonText: 'Sí, eliminar todo',
       cancelButtonText: 'Cancelar',
       customClass: { confirmButton: 'btn btn-danger', cancelButton: 'btn btn-outline' },
-      buttonsStyling: false
-    }); // customClass + buttonsStyling [4][3]
+      buttonsStyling: false,
+    });
     if (!ok.isConfirmed) return;
 
     try {
-      const res = await fetch(`${API}/${id}`, { method: 'DELETE' });
-      const contentType = res.headers.get('Content-Type') || '';
-      const isJson = contentType.includes('application/json');
-      const text = await res.text();
-      const data = isJson && text ? JSON.parse(text) : (text ? { mensaje: text } : {});
-
-      if (!res.ok) {
-        const msg = data?.mensaje || 'No se pudo eliminar el cliente.';
-        return Swal.fire('Error', msg, 'error');
-      }
-
-      await Swal.fire('Eliminado', data?.mensaje || 'Cliente y porcinos asociados eliminados.', 'success');
-      cargar();
-    } catch {
-      Swal.fire('Error', 'Error de conexión al eliminar cliente.', 'error');
+      await eliminar({ variables: { id } });
+      await Swal.fire('Eliminado', 'Cliente y porcinos asociados eliminados.', 'success');
+    } catch (error) {
+      const msg = error?.message || 'No se pudo eliminar el cliente.';
+      return Swal.fire('Error', msg, 'error');
     }
   }
 

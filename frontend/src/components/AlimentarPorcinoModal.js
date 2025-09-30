@@ -1,22 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Modal from 'react-modal';
+import { useQuery, useMutation, gql } from '@apollo/client';
 
-const API_ALIMENTACIONES = "http://localhost:5000/api/alimentaciones";
+const Q_ALIMENTACIONES = gql`
+  query Alimentaciones {
+    alimentaciones { _id nombre cantidadLibras }
+  }
+`;
+
+const M_ALIMENTAR_PORCINO = gql`
+  mutation AlimentarPorcino($input: AlimentarPorcinoInput!) {
+    alimentarPorcino(input: $input) {
+      _id
+      identificacion
+      historialAlimentacion { dosis fecha nombreSnapshot }
+    }
+  }
+`;
 
 export default function AlimentarPorcinoModal({ isOpen, onRequestClose, porcinoId, onAlimentado }) {
-  const [alimentaciones, setAlimentaciones] = useState([]);
+  const { data, refetch } = useQuery(Q_ALIMENTACIONES, { skip: !isOpen, fetchPolicy: 'cache-and-network' });
+  const [alimentar] = useMutation(M_ALIMENTAR_PORCINO);
   const [form, setForm] = useState({ alimentacionId: '', dosis: '' });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      fetch(API_ALIMENTACIONES)
-        .then(res => res.json())
-        .then(data => setAlimentaciones(data))
-        .catch(() => setAlimentaciones([]));
+      refetch?.();
       setForm({ alimentacionId: '', dosis: '' });
     }
-  }, [isOpen]);
+  }, [isOpen, refetch]);
 
   function handleChange(e) {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -24,40 +37,42 @@ export default function AlimentarPorcinoModal({ isOpen, onRequestClose, porcinoI
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.alimentacionId) {
-      alert('Seleccione una alimentación');
-      return;
-    }
-    if (!form.dosis || Number(form.dosis) <= 0) {
-      alert('Ingrese una dosis válida (mayor que 0)');
-      return;
-    }
+    if (!form.alimentacionId) return alert('Seleccione una alimentación');
+    if (!form.dosis || Number(form.dosis) <= 0) return alert('Ingrese una dosis válida (mayor que 0)');
+
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:5000/api/porcinos/${porcinoId}/alimentar`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ alimentacionId: form.alimentacionId, dosis: Number(form.dosis) })
+      await alimentar({
+        variables: {
+          input: {
+            porcinoId,
+            alimentacionId: form.alimentacionId,
+            dosis: Number(form.dosis),
+          },
+        },
       });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.mensaje || 'Error al registrar alimentación');
-      } else {
-        alert('Alimentación registrada correctamente');
-        onAlimentado();
-        onRequestClose();
-      }
-    } catch {
-      alert('Error en la conexión al servidor');
+      alert('Alimentación registrada correctamente');
+      onAlimentado?.();
+      onRequestClose?.();
+    } catch (e) {
+      alert(e?.message || 'Error al registrar alimentación');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
+
+  const alimentaciones = data?.alimentaciones || [];
 
   return (
     <Modal isOpen={isOpen} onRequestClose={onRequestClose} ariaHideApp={false}>
       <h2>Agregar alimentación a porcino</h2>
       <form onSubmit={handleSubmit}>
-        <select name="alimentacionId" value={form.alimentacionId} onChange={handleChange} required>
+        <select
+          name="alimentacionId"
+          value={form.alimentacionId}
+          onChange={handleChange}
+          required
+        >
           <option value="">Seleccione alimentación</option>
           {alimentaciones.map(a => (
             <option key={a._id} value={a._id}>
@@ -65,6 +80,7 @@ export default function AlimentarPorcinoModal({ isOpen, onRequestClose, porcinoI
             </option>
           ))}
         </select>
+
         <input
           type="number"
           name="dosis"
@@ -75,8 +91,13 @@ export default function AlimentarPorcinoModal({ isOpen, onRequestClose, porcinoI
           min="0.1"
           required
         />
-        <button type="submit" disabled={loading}>{loading ? 'Guardando...' : 'Guardar'}</button>
-        <button type="button" onClick={onRequestClose} disabled={loading}>Cancelar</button>
+
+        <button type="submit" disabled={loading}>
+          {loading ? 'Guardando...' : 'Guardar'}
+        </button>
+        <button type="button" onClick={onRequestClose} disabled={loading}>
+          Cancelar
+        </button>
       </form>
     </Modal>
   );
