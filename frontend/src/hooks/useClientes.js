@@ -1,15 +1,23 @@
 // src/hooks/useClientes.js
 import { useQuery, useMutation } from '@apollo/client';
-import { Q_CLIENTES, M_CREAR_CLIENTE, M_ACTUALIZAR_CLIENTE, M_ELIMINAR_CLIENTE } from '../graphql/cliente.gql';
+import {
+  Q_CLIENTES,
+  M_CREAR_CLIENTE,
+  M_ACTUALIZAR_CLIENTE,
+  M_ELIMINAR_CLIENTE,
+} from '../graphql/cliente.gql';
 
 export function useClientes(opts = {}) {
-  const list = useQuery(Q_CLIENTES, {
-    fetchPolicy: 'cache-and-network',
-    nextFetchPolicy: 'cache-first',
-    errorPolicy: 'all',
+  // Lista de clientes
+  const list = useQuery(Q_CLIENTES, console.log('useClientes: ejecutando Q_CLIENTES'), {
+    fetchPolicy: 'cache-and-network', // pinta cache y luego refresca
+    nextFetchPolicy: 'cache-first',   // respuestas siguientes desde cache
+    errorPolicy: 'all',               // entrega data aunque haya error
+    notifyOnNetworkStatusChange: true,
   });
 
- const [crear] = useMutation(M_CREAR_CLIENTE, {
+  // Crear
+  const [crear] = useMutation(M_CREAR_CLIENTE, {
     refetchQueries: [{ query: Q_CLIENTES }],
     awaitRefetchQueries: true,
     ...opts,
@@ -17,12 +25,16 @@ export function useClientes(opts = {}) {
       const nuevo = data?.crearCliente;
       if (!nuevo) return;
       const prev = cache.readQuery({ query: Q_CLIENTES }) || { clientes: [] };
-      if (!prev.clientes.some(c => c._id === nuevo._id)) {
-        cache.writeQuery({ query: Q_CLIENTES, data: { clientes: [nuevo, ...prev.clientes] } });
+      if (!prev.clientes.some((c) => c._id === nuevo._id)) {
+        cache.writeQuery({
+          query: Q_CLIENTES,
+          data: { clientes: [nuevo, ...prev.clientes] },
+        });
       }
     },
   });
 
+  // Actualizar
   const [actualizar] = useMutation(M_ACTUALIZAR_CLIENTE, {
     refetchQueries: [{ query: Q_CLIENTES }],
     awaitRefetchQueries: true,
@@ -33,21 +45,23 @@ export function useClientes(opts = {}) {
       const prev = cache.readQuery({ query: Q_CLIENTES }) || { clientes: [] };
       cache.writeQuery({
         query: Q_CLIENTES,
-        data: { clientes: prev.clientes.map(c => (c._id === upd._id ? upd : c)) },
+        data: { clientes: prev.clientes.map((c) => (c._id === upd._id ? upd : c)) },
       });
     },
   });
 
+  // Eliminar
   const [eliminar] = useMutation(M_ELIMINAR_CLIENTE, {
     refetchQueries: [{ query: Q_CLIENTES }],
     awaitRefetchQueries: true,
     ...opts,
     update(cache, { variables }) {
       const id = variables?.id;
+      if (!id) return;
       const prev = cache.readQuery({ query: Q_CLIENTES }) || { clientes: [] };
       cache.writeQuery({
         query: Q_CLIENTES,
-        data: { clientes: prev.clientes.filter(c => c._id !== id) },
+        data: { clientes: prev.clientes.filter((c) => c._id !== id) },
       });
     },
   });

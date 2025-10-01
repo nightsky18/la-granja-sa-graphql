@@ -12,15 +12,19 @@ const { resolvers } = require('./graphql/resolvers');
   const app = express();
   const httpServer = http.createServer(app);
 
+  // Middlewares
   app.use(cors());
   app.use(express.json());
 
+  // Healthcheck
   app.get('/health', (_req, res) => res.status(200).send('OK'));
 
+  // Mongo
   const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/la-granja';
   await mongoose.connect(MONGODB_URI);
   console.log('MongoDB conectado');
 
+  // Apollo
   const apollo = new ApolloServer({
     typeDefs,
     resolvers,
@@ -30,22 +34,23 @@ const { resolvers } = require('./graphql/resolvers');
   await apollo.start();
   console.log('Apollo Server iniciado');
 
-  // Handler POST /graphql compatible con Apollo v4 (sin adaptador externo)
+  // Handler GraphQL (POST /graphql) compatible con Apollo v4
   app.post('/graphql', async (req, res) => {
     try {
       apollo.assertStarted('Server no iniciado');
 
-      // Body robusto
+      // Asegurar body JSON
       const reqBody = typeof req.body === 'string'
         ? JSON.parse(req.body || '{}')
         : (req.body ?? {});
 
-      // Headers WHATWG (Node 22 tiene Headers nativo)
+      // Construir Headers WHATWG
       const hdrs = new Headers();
       for (const [k, v] of Object.entries(req.headers || {})) {
         hdrs.set(k, Array.isArray(v) ? v.join(', ') : String(v));
       }
 
+      // Ejecutar la operación
       const httpGraphQLResponse = await apollo.executeHTTPGraphQLRequest({
         httpGraphQLRequest: {
           method: req.method,
@@ -57,40 +62,64 @@ const { resolvers } = require('./graphql/resolvers');
       });
 
       // Propagar cabeceras
-      for (const [key, value] of httpGraphQLResponse.headers) {
-        res.setHeader(key, value);
-      }
-      // Forzar content-type si falta
-      if (!res.getHeader('content-type')) {
-        res.setHeader('content-type', 'application/json; charset=utf-8');
-      }
-      res.status(httpGraphQLResponse.status || 200);
+    // Propagar cabeceras que vengan de Apollo
+for (const [key, value] of httpGraphQLResponse.headers) {
+  res.setHeader(key, value);
+}
+// Forzar JSON si falta o es incorrecto
+const ct = String(res.getHeader('content-type') || '');
+if (!ct.includes('application/json')) {
+  res.setHeader('content-type', 'application/json; charset=utf-8');
+}
+res.status(httpGraphQLResponse.status || 200);
 
-      // Enviar body siempre
-      const body = httpGraphQLResponse.body;
-      if (typeof body === 'string') {
-        return res.send(body);
-      }
-      if (body && typeof body[Symbol.asyncIterator] === 'function') {
-        let full = '';
-        for await (const chunk of body) full += chunk;
-        return res.send(full);
-      }
-      if (body) {
-        return res.send(body);
-      }
-      // Fallback para evitar "Server response was missing"
-      return res.send('{"data":null}');
+// Normalizar body a JSON string
+let body = httpGraphQLResponse.body;
+
+// 1) Si viene como objeto { kind, string }, usar string
+if (body && typeof body === 'object' && 'kind' in body && 'string' in body) {
+  body = body.string;
+}
+
+// 2) Si es async iterable, concatenar
+if (body && typeof body[Symbol.asyncIterator] === 'function') {
+  let full = '';
+  for await (const chunk of body) {
+    full += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf-8');
+  }
+  return res.send(full);
+}
+
+// 3) Si es Buffer/Uint8Array
+if (body && typeof body === 'object' && (Buffer.isBuffer(body) || body.constructor?.name === 'Uint8Array')) {
+  return res.send(Buffer.from(body).toString('utf-8'));
+}
+
+// 4) Si es string, enviarlo tal cual
+if (typeof body === 'string') {
+  return res.send(body);
+}
+
+// 5) Si es objeto serializable (p.ej. { data: ... }), enviarlo como JSON
+if (body && typeof body === 'object') {
+  return res.send(JSON.stringify(body));
+}
+
+// 6) Fallback para evitar "missing response"
+return res.send('{"data":null}');
+
     } catch (e) {
       console.error('Error en /graphql:', e);
       return res.status(500).json({ errors: [{ message: e.message || 'Error interno' }] });
     }
-  }); // <-- cierre del handler
+  });
 
+  // Raíz
   app.get('/', (_req, res) =>
     res.status(200).send('Backend La Granja S.A. - GraphQL en POST /graphql')
   );
 
+  // Arranque
   const PORT = process.env.PORT || 5000;
   httpServer.listen(PORT, () => {
     console.log(`Servidor Express 5 listo en puerto ${PORT}`);

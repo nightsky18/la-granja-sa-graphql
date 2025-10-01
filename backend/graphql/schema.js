@@ -86,7 +86,11 @@ input AlimentacionUpdateInput {
   cantidadLibras: Float
 }
 
-
+input HistorialUpdateInput {
+  dosis: Float
+  fecha: Date
+  alimentacionId: ID
+}
 
 
   input PorcinoInput {
@@ -163,8 +167,9 @@ input RangoFechasInput {
 
     # Operación de negocio
     alimentarPorcino(input: AlimentarPorcinoInput!): Porcino!
-    editarHistorialAlimentacion(input: EditarHistorialInput!): Porcino!
-    }
+    actualizarHistorialAlimentacion(porcinoId: ID!, historialId: ID!, data: HistorialUpdateInput!): Porcino!
+  eliminarHistorialAlimentacion(porcinoId: ID!, historialId: ID!): Porcino!
+}
 `;
 
 module.exports = { typeDefs };

@@ -77,3 +77,26 @@ export const M_EDITAR_HISTORIAL = gql`
     }
   }
 `;
+
+export const M_ACTUALIZAR_HISTORIAL = gql`
+  mutation ActualizarHistorial($porcinoId: ID!, $historialId: ID!, $data: HistorialUpdateInput!) {
+    actualizarHistorialAlimentacion(porcinoId: $porcinoId, historialId: $historialId, data: $data) {
+      _id
+      historialAlimentacion { _id dosis fecha nombreSnapshot alimentacion { _id nombre } }
+    }
+  }
+`;
+export const M_ELIMINAR_HISTORIAL = gql`
+  mutation EliminarHistorial($porcinoId: ID!, $historialId: ID!) {
+    eliminarHistorialAlimentacion(porcinoId: $porcinoId, historialId: $historialId) {
+      _id
+      historialAlimentacion {
+  _id
+  dosis
+  fecha
+  nombreSnapshot
+  alimentacion { _id nombre }
+}
+    }
+  }
+`;

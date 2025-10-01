@@ -289,6 +289,36 @@ const resolvers = {
         throw new Error(duplicateKeyMessage(err, 'No se pudo crear el porcino.'));
       }
     },
+     async actualizarHistorialAlimentacion(_, { porcinoId, historialId, data }) {
+    // Busca y actualiza el subdocumento
+    const porcino = await Porcino.findById(porcinoId);
+    if (!porcino) throw new Error('Porcino no encontrado');
+    const item = porcino.historialAlimentacion.id(historialId);
+    if (!item) throw new Error('Entrada de historial no encontrada');
+
+    if (typeof data.dosis === 'number') item.dosis = data.dosis;
+    if (data.fecha) item.fecha = new Date(data.fecha);
+    if (data.alimentacionId) {
+      // opcional: actualizar snapshot/nombre si cambias de alimentación
+      const alim = await Alimentacion.findById(data.alimentacionId);
+      if (!alim) throw new Error('Alimentación no encontrada');
+      item.alimentacion = alim._id;
+      item.nombreSnapshot = alim.nombre;
+    }
+
+    await porcino.save();
+    return porcino;
+  },
+
+  async eliminarHistorialAlimentacion(_, { porcinoId, historialId }) {
+    const porcino = await Porcino.findById(porcinoId);
+    if (!porcino) throw new Error('Porcino no encontrado');
+    const item = porcino.historialAlimentacion.id(historialId);
+    if (!item) throw new Error('Entrada de historial no encontrada');
+    item.deleteOne();
+    await porcino.save();
+    return porcino;
+  },
 
     actualizarPorcino: async (_, { id, data }) => {
       const patch = { ...data };
@@ -357,6 +387,7 @@ const resolvers = {
     },
   },
 
+  
   Porcino: {
     // Resolvers de campos adicionales si se requieren
   },

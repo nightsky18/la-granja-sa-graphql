@@ -21,40 +21,42 @@ export default function EditarHistorialModal({ isOpen, onRequestClose, porcino, 
     setForm({ ...form, [e.target.name]: e.target.value });
   }
 
-  async function save(e) {
-    e.preventDefault();
+async function save(e) {
+  e.preventDefault();
 
-    if (!porcino?._id || !registro?._id) {
-      return Swal.fire('Error', 'No se encontró el porcino o el registro a editar.', 'error');
-    }
-    if (!form.alimentacionId) {
-      return Swal.fire('Error', 'Seleccione alimentación.', 'error');
-    }
-    if (!form.dosis || Number(form.dosis) <= 0) {
-      return Swal.fire('Error', 'Dosis debe ser mayor que 0.', 'error');
-    }
-
-    setLoading(true);
-    try {
-      await editar({
-        variables: {
-          input: {
-            porcinoId: porcino._id,
-            historialId: registro._id,
-            alimentacionId: form.alimentacionId,
-            dosis: Number(form.dosis),
-          }
-        }
-      });
-      await Swal.fire('Listo', 'Historial actualizado.', 'success');
-      onGuardado?.();
-      onRequestClose?.();
-    } catch (err) {
-      return Swal.fire('Error', err?.message || 'No se pudo actualizar el historial.', 'error');
-    } finally {
-      setLoading(false);
-    }
+  if (!porcino?._id || !registro?._id) {
+    return Swal.fire('Error', 'No se encontró el porcino o el registro a editar.', 'error');
   }
+  if (!form.alimentacionId) {
+    return Swal.fire('Error', 'Seleccione alimentación.', 'error');
+  }
+  if (!form.dosis || Number(form.dosis) <= 0) {
+    return Swal.fire('Error', 'Dosis debe ser mayor que 0.', 'error');
+  }
+
+  setLoading(true);
+  try {
+    await editar({
+      variables: {
+        porcinoId: porcino._id,
+        historialId: registro._id,
+        data: {
+          alimentacionId: form.alimentacionId,
+          dosis: Number(form.dosis),
+          // si agregas fecha editable: fecha: new Date(form.fecha).toISOString()
+        },
+      },
+    });
+    await Swal.fire('Listo', 'Historial actualizado.', 'success');
+    onGuardado?.();
+    onRequestClose?.();
+  } catch (err) {
+    const msg = err?.graphQLErrors?.[0]?.message || err?.message || 'No se pudo actualizar el historial.';
+    return Swal.fire('Error', msg, 'error');
+  } finally {
+    setLoading(false);
+  }
+}
 
   const existeAlim = Boolean(registro?.alimentacion?._id);
   const alims = alimentaciones.data?.alimentaciones || [];
