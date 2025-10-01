@@ -5,13 +5,11 @@ import ConsumoPorAlimentacion from '../components/reports/ConsumoPorAlimentacion
 
 export default function Reportes() {
   const [tab, setTab] = useState('trazabilidad'); // 'trazabilidad' | 'cliente' | 'alimento'
-
   return (
     <div className="container main">
       <section className="section card">
         <h2>Reportes</h2>
 
-        {/* Tabs simples */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
           <button className={`btn ${tab==='trazabilidad' ? 'btn-primary' : 'btn-outline'}`} onClick={() => setTab('trazabilidad')}>
             Trazabilidad por alimento
@@ -24,7 +22,6 @@ export default function Reportes() {
           </button>
         </div>
 
-        {/* Contenido */}
         {tab === 'trazabilidad' && <TrazabilidadPorAlimento />}
         {tab === 'cliente' && <ConsumoPorCliente />}
         {tab === 'alimento' && <ConsumoPorAlimentacion />}

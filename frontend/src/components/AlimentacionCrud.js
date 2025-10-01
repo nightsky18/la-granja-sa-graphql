@@ -3,23 +3,14 @@ import Modal from 'react-modal';
 import Swal from 'sweetalert2';
 import { useAlimentaciones } from '../hooks/useAlimentaciones';
 import { usePorcinosMin } from '../hooks/usePorcinosMin';
-const API = 'http://localhost:5000/api/alimentaciones';
 
 function AlimentarPorcinoInline({ alimentacion, onDone }) {
- const [isOpen, setOpen] = useState(false);
+  const [isOpen, setOpen] = useState(false);
   const [form, setForm] = useState({ porcinoId: '', dosis: '' });
   const [loading, setLoading] = useState(false);
   const { porcinos, alimentar } = usePorcinosMin();
 
   useEffect(() => {
-    if (isOpen) setForm({ porcinoId: '', dosis: '' });
-  }, [isOpen]);
-
-  function handleChange(e) {
-    setForm({ ...form, [e.target.name]: e.target.value });
-  }
-
-   useEffect(() => {
     if (isOpen) setForm({ porcinoId: '', dosis: '' });
   }, [isOpen]);
 
@@ -49,7 +40,8 @@ function AlimentarPorcinoInline({ alimentacion, onDone }) {
       setLoading(false);
     }
   }
- const listaPorcinos = porcinos.data?.porcinos || [];
+
+  const listaPorcinos = porcinos.data?.porcinos || [];
 
   return (
     <>
@@ -79,38 +71,31 @@ function AlimentarPorcinoInline({ alimentacion, onDone }) {
 }
 
 export default function AlimentacionCrud() {
-const { list, crear, actualizar, eliminar } = useAlimentaciones();
+  const { list, crear, actualizar, eliminar } = useAlimentaciones();
   const [items, setItems] = useState([]);
   const [form, setForm] = useState({ id: '', nombre: '', descripcion: '', cantidadLibras: 0 });
   const [editId, setEditId] = useState(null);
 
- useEffect(() => {
+  useEffect(() => {
     if (list.data?.alimentaciones) setItems(list.data.alimentaciones);
   }, [list.data]);
 
-
- function handleChange(e) {
+  function handleChange(e) {
     const { name, value } = e.target;
     setForm((f) => ({ ...f, [name]: name === 'cantidadLibras' ? Number(value) : value }));
   }
 
-  function validar() {
-    if (!form.id?.trim()) return Swal.fire('Error', 'El ID es obligatorio y debe ser único.', 'error'), false;
-    if (!form.nombre?.trim()) return Swal.fire('Error', 'El nombre es obligatorio.', 'error'), false;
-    if (!form.descripcion?.trim()) return Swal.fire('Error', 'La descripción es obligatoria.', 'error'), false;
-    if (!form.cantidadLibras || Number(form.cantidadLibras) <= 0)
-      return Swal.fire('Error', 'La cantidad en libras debe ser un número positivo.', 'error'), false;
-    return true;
-  }
-
-    function reset() {
+  function reset() {
     setForm({ id: '', nombre: '', descripcion: '', cantidadLibras: 0 });
     setEditId(null);
   }
 
-   async function save(e) {
+  async function save(e) {
     e.preventDefault();
+
+    // Validaciones mínimas coherentes con backend
     if (!form.nombre.trim()) return Swal.fire('Error', 'El nombre es requerido.', 'error');
+    if (!editId && !form.id.trim()) return Swal.fire('Error', 'El ID es obligatorio y debe ser único.', 'error');
     if (form.cantidadLibras < 0) return Swal.fire('Error', 'El stock no puede ser negativo.', 'error');
 
     try {
@@ -135,17 +120,6 @@ const { list, crear, actualizar, eliminar } = useAlimentaciones();
       return Swal.fire('Error', msg, 'error');
     }
   }
-function edit(item) {
-    setForm({
-      id: item.id,
-      nombre: item.nombre || '',
-      descripcion: item.descripcion || '',
-      cantidadLibras: item.cantidadLibras ?? 0,
-    });
-    setEditId(item._id);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-  
 
   async function del(id) {
     const ok = await Swal.fire({
@@ -166,7 +140,7 @@ function edit(item) {
   }
 
   function edit(a) {
-    setForm({ id: a.id, nombre: a.nombre, descripcion: a.descripcion, cantidadLibras: a.cantidadLibras });
+    setForm({ id: a.id, nombre: a.nombre || '', descripcion: a.descripcion || '', cantidadLibras: a.cantidadLibras ?? 0 });
     setEditId(a._id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -178,13 +152,15 @@ function edit(item) {
 
         <form onSubmit={save}>
           <div className="form-row">
-            <div>
-              <label>ID</label>
-              <input name="id" value={form.id} onChange={handleChange} placeholder="Ej: ALIM-001" />
-            </div>
+            {!editId && (
+              <div>
+                <label>ID</label>
+                <input name="id" value={form.id} onChange={handleChange} placeholder="Ej: ALIM-001" required />
+              </div>
+            )}
             <div>
               <label>Nombre</label>
-              <input name="nombre" value={form.nombre} onChange={handleChange} placeholder="Nombre del alimento" />
+              <input name="nombre" value={form.nombre} onChange={handleChange} placeholder="Nombre del alimento" required />
             </div>
           </div>
 
@@ -195,13 +171,13 @@ function edit(item) {
             </div>
             <div>
               <label>Cantidad (lbs)</label>
-              <input type="number" name="cantidadLibras" value={form.cantidadLibras} onChange={handleChange} min="0.1" step="0.1" />
+              <input type="number" name="cantidadLibras" value={form.cantidadLibras} onChange={handleChange} min="0" step="0.1" />
             </div>
           </div>
 
           <div className="form-actions">
             <button className="btn btn-primary" type="submit">{editId ? 'Actualizar' : 'Crear'}</button>
-            <button className="btn btn-outline" type="button" onClick={() => { setForm({ id: '', nombre: '', descripcion: '', cantidadLibras: '' }); setEditId(null); }}>
+            <button className="btn btn-outline" type="button" onClick={reset}>
               Limpiar
             </button>
           </div>
@@ -212,19 +188,15 @@ function edit(item) {
         <table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Nombre</th>
-              <th>Descripción</th>
-              <th>Stock (lbs)</th>
-              <th>Acciones</th>
+              <th>ID</th><th>Nombre</th><th>Descripción</th><th>Stock (lbs)</th><th>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {list.map(a => (
+            {items.map(a => (
               <tr key={a._id}>
                 <td>{a.id}</td>
                 <td>{a.nombre}</td>
-                <td>{a.descripcion}</td>
+                <td>{a.descripcion || '-'}</td>
                 <td>{a.cantidadLibras}</td>
                 <td>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -235,7 +207,7 @@ function edit(item) {
                 </td>
               </tr>
             ))}
-            {list.length === 0 && (
+            {items.length === 0 && (
               <tr><td colSpan="5">Sin registros</td></tr>
             )}
           </tbody>

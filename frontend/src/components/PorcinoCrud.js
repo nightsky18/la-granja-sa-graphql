@@ -5,53 +5,51 @@ import { exportToPdf } from '../utils/exportToPdf';
 import ClienteCRUD from './ClienteCrud';
 import AlimentacionCRUD from './AlimentacionCrud';
 import EditarHistorialModal from './EditarHistorialModal';
-
-const API = 'http://localhost:5000/api/porcinos';
-const API_CLIENTES = 'http://localhost:5000/api/clientes';
-const API_ALIMENTACIONES = 'http://localhost:5000/api/alimentaciones';
+import { usePorcinos } from '../hooks/usePorcinos';
 
 export default function PorcinoCRUD() {
+  // Datos desde GraphQL
+  const { porcinos: qPorcinos, clientes: qClientes, alimentaciones: qAlims, crear, actualizar, eliminar, alimentar } = usePorcinos();
+
+  // Estados locales de UI
   const [porcinos, setPorcinos] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [alimentaciones, setAlimentaciones] = useState([]);
 
-  // estados
   const [editHistOpen, setEditHistOpen] = useState(false);
   const [registroEdit, setRegistroEdit] = useState(null);
   const [porcinoEditRef, setPorcinoEditRef] = useState(null);
 
-  // form porcino
   const [form, setForm] = useState({ identificacion: '', raza: 1, edad: '', peso: '', cliente: '' });
   const [editId, setEditId] = useState(null);
 
-  // embebidos
   const [showClienteForm, setShowClienteForm] = useState(false);
   const [showAlimentacionForm, setShowAlimentacionForm] = useState(false);
 
-  // alimentar
   const [alimentarModalOpen, setAlimentarModalOpen] = useState(false);
   const [porcinoSeleccionado, setPorcinoSeleccionado] = useState(null);
   const [alimentarForm, setAlimentarForm] = useState({ alimentacionId: '', dosis: '' });
 
-  // historial modal
   const [histModalOpen, setHistModalOpen] = useState(false);
   const [porcinoHist, setPorcinoHist] = useState(null);
 
-  useEffect(() => { cargarListas(); }, []);
-
-  function cargarListas() {
-    fetch(API).then(r => r.json()).then(setPorcinos);
-    fetch(API_CLIENTES).then(r => r.json()).then(setClientes);
-    fetch(API_ALIMENTACIONES).then(r => r.json()).then(setAlimentaciones);
-  }
+  // Sincronizar resultados de GraphQL con estados de UI
+  useEffect(() => {
+    if (qPorcinos.data?.porcinos) setPorcinos(qPorcinos.data.porcinos);
+  }, [qPorcinos.data]);
+  useEffect(() => {
+    if (qClientes.data?.clientes) setClientes(qClientes.data.clientes);
+  }, [qClientes.data]);
+  useEffect(() => {
+    if (qAlims.data?.alimentaciones) setAlimentaciones(qAlims.data.alimentaciones);
+  }, [qAlims.data]);
 
   function handleChange(e) { setForm({ ...form, [e.target.name]: e.target.value }); }
 
   function validarFormulario() {
-    if (!form.identificacion.trim()) { Swal.fire('Error', 'La identificación es obligatoria.', 'error'); return false; }
-    if (!form.edad || Number(form.edad) <= 0) { Swal.fire('Error', 'La edad debe ser un número positivo en meses.', 'error'); return false; }
-    if (!form.peso || Number(form.peso) <= 0) { Swal.fire('Error', 'El peso debe ser un número positivo en kg.', 'error'); return false; }
-    if (!form.cliente) { Swal.fire('Error', 'Debe seleccionar un cliente.', 'error'); return false; }
+    if (!form.identificacion.trim() && !editId) { Swal.fire('Error', 'La identificación es obligatoria.', 'error'); return false; }
+    if (form.edad === '' || Number(form.edad) < 0) { Swal.fire('Error', 'La edad debe ser un número no negativo (meses).', 'error'); return false; }
+    if (form.peso === '' || Number(form.peso) < 0) { Swal.fire('Error', 'El peso debe ser un número no negativo (kg).', 'error'); return false; }
     return true;
   }
 
@@ -59,34 +57,40 @@ export default function PorcinoCRUD() {
     e.preventDefault();
     if (!validarFormulario()) return;
 
-    const method = editId ? 'PUT' : 'POST';
-    const url = editId ? `${API}/${editId}` : API;
+    const payload = {
+      raza: Number(form.raza),
+      edad: Number(form.edad),
+      peso: Number(form.peso),
+      clienteId: form.cliente || null,
+    };
 
     try {
-      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
-      const text = await res.text();
-      let data; try { data = JSON.parse(text); } catch { data = { mensaje: text }; }
-
-      if (!res.ok) {
-        if (data?.mensaje?.toLowerCase().includes('identificacion') || data?.code === 11000) {
-          Swal.fire('Error', 'La identificación ya está registrada.', 'error');
-        } else {
-          Swal.fire('Error', data.mensaje || 'Error al guardar porcino.', 'error');
-        }
-        return;
+      if (editId) {
+        await actualizar({ variables: { id: editId, data: payload } });
+      } else {
+        await crear({ variables: { data: { ...payload, identificacion: form.identificacion.trim() } } });
       }
-
-      Swal.fire('¡Éxito!', editId ? 'Porcino actualizado.' : 'Porcino creado.', 'success');
+      await Swal.fire('¡Éxito!', editId ? 'Porcino actualizado.' : 'Porcino creado.', 'success');
       setForm({ identificacion: '', raza: 1, edad: '', peso: '', cliente: '' });
       setEditId(null);
-      cargarListas();
-    } catch {
-      Swal.fire('Error', 'Error de conexión con el servidor.', 'error');
+      qPorcinos.refetch();
+    } catch (err) {
+      const msg = err?.message || 'Error al guardar porcino.';
+      if (/identificaci[óo]n.*duplicad/i.test(msg)) {
+        return Swal.fire('Error', 'La identificación ya está registrada.', 'error');
+      }
+      return Swal.fire('Error', msg, 'error');
     }
   }
 
   function edit(p) {
-    setForm({ identificacion: p.identificacion, raza: p.raza, edad: p.edad, peso: p.peso, cliente: p.cliente?._id || '' });
+    setForm({
+      identificacion: p.identificacion,
+      raza: p.raza,
+      edad: p.edad,
+      peso: p.peso,
+      cliente: p.cliente?._id || '',
+    });
     setEditId(p._id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -106,33 +110,11 @@ export default function PorcinoCRUD() {
       cancelButtonText: 'Cancelar',
       customClass: { confirmButton: 'btn btn-danger', cancelButton: 'btn btn-outline' },
       buttonsStyling: false
-    }); // icon buttons themed [20][21]
+    });
     if (!ok.isConfirmed) return;
 
-    if (!p?._id) return Swal.fire('Error', 'ID de porcino no válido.', 'error');
-    if (!reg?._id) return Swal.fire('Error', 'ID del registro de historial no válido.', 'error');
-
-    const url = `http://localhost:5000/api/porcinos/${p._id}/historial/${reg._id}`;
-    try {
-      const res = await fetch(url, { method: 'DELETE' });
-      const contentType = res.headers.get('Content-Type') || '';
-      const isJson = contentType.includes('application/json');
-      const text = await res.text();
-      const data = isJson && text ? JSON.parse(text) : (text ? { mensaje: text } : {});
-      if (!res.ok) {
-        const msg = data?.mensaje || `No se pudo eliminar. Código ${res.status}`;
-        return Swal.fire('Error', msg, 'error');
-      }
-      await Swal.fire('Eliminado', 'Registro eliminado y stock devuelto (si aplicaba).', 'success');
-      cargarListas();
-      // si el modal de historial está abierto, refrescar referencia
-      if (histModalOpen && porcinoHist?._id === p._id) {
-        const actualizado = await fetch(`${API}`).then(r => r.json()).then(arr => arr.find(x => x._id === p._id));
-        if (actualizado) setPorcinoHist(actualizado);
-      }
-    } catch {
-      Swal.fire('Error', 'Error de conexión o URL inválida.', 'error');
-    }
+  
+    return Swal.fire('Pendiente', 'La edición/eliminación granular del historial se expone por REST. Se puede añadir como mutations GraphQL si lo necesitas.', 'info');
   }
 
   async function del(id) {
@@ -149,21 +131,16 @@ export default function PorcinoCRUD() {
     if (!confirm.isConfirmed) return;
 
     try {
-      const res = await fetch(`${API}/${id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const data = await res.json();
-        Swal.fire('Error', data.mensaje || 'No se pudo eliminar.', 'error');
-        return;
-      }
-      Swal.fire('Eliminado', 'Porcino eliminado correctamente.', 'success');
-      cargarListas();
-    } catch {
-      Swal.fire('Error', 'Error de conexión al eliminar.', 'error');
+      await eliminar({ variables: { id } });
+      await Swal.fire('Eliminado', 'Porcino eliminado correctamente.', 'success');
+      qPorcinos.refetch();
+    } catch (err) {
+      return Swal.fire('Error', err?.message || 'No se pudo eliminar.', 'error');
     }
   }
 
-  function onClienteSaved() { setShowClienteForm(false); cargarListas(); }
-  function onAlimentacionSaved() { setShowAlimentacionForm(false); cargarListas(); }
+  function onClienteSaved() { setShowClienteForm(false); qClientes.refetch(); }
+  function onAlimentacionSaved() { setShowAlimentacionForm(false); qAlims.refetch(); }
 
   function abrirModalAlimentar(p) {
     setPorcinoSeleccionado(p);
@@ -178,55 +155,56 @@ export default function PorcinoCRUD() {
     if (!alimentarForm.dosis || Number(alimentarForm.dosis) <= 0) { Swal.fire('Error', 'Ingrese una dosis válida (libras).', 'error'); return; }
 
     try {
-      const res = await fetch(`http://localhost:5000/api/porcinos/${porcinoSeleccionado._id}/alimentar`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ alimentacionId: alimentarForm.alimentacionId, dosis: Number(alimentarForm.dosis) })
+      await alimentar({
+        variables: {
+          input: {
+            porcinoId: porcinoSeleccionado._id,
+            alimentacionId: alimentarForm.alimentacionId,
+            dosis: Number(alimentarForm.dosis)
+          }
+        }
       });
-      const data = await res.json();
-      if (!res.ok) {
-        Swal.fire('Error', data.mensaje || 'No se pudo registrar la alimentación.', 'error');
-        return;
-      }
-      Swal.fire('¡Listo!', 'Alimentación registrada y stock actualizado.', 'success');
+      await Swal.fire('¡Listo!', 'Alimentación registrada y stock actualizado.', 'success');
       setAlimentarModalOpen(false);
-      cargarListas();
-    } catch {
-      Swal.fire('Error', 'Error de conexión al registrar alimentación.', 'error');
+      qPorcinos.refetch();
+      qAlims.refetch();
+    } catch (err) {
+      return Swal.fire('Error', err?.message || 'No se pudo registrar la alimentación.', 'error');
     }
   }
+
   function exportPorcinosPdf() {
-  const columns = ['Identificación', 'Raza', 'Edad (meses)', 'Peso (kg)', 'Cliente'];
-  const rows = porcinos.map(p => [
-    p.identificacion,
-    ['', 'York', 'Hamp', 'Duroc'][p.raza],
-    p.edad,
-    p.peso,
-    `${p.cliente?.nombres || ''} ${p.cliente?.apellidos || ''}`.trim()
-  ]);
-  exportToPdf({
-    title: 'Reporte de Porcinos',
-    columns, rows,
-    fileName: `porcinos_${new Date().toISOString().slice(0,10)}.pdf`,
-    subtitle: 'Listado general',
-    orientation: 'p'
-  });
-}
+    const columns = ['Identificación', 'Raza', 'Edad (meses)', 'Peso (kg)', 'Cliente'];
+    const rows = porcinos.map(p => [
+      p.identificacion,
+      ['', 'York', 'Hamp', 'Duroc'][p.raza],
+      p.edad,
+      p.peso,
+      `${p.cliente?.nombres || ''} ${p.cliente?.apellidos || ''}`.trim()
+    ]);
+    exportToPdf({
+      title: 'Reporte de Porcinos',
+      columns, rows,
+      fileName: `porcinos_${new Date().toISOString().slice(0,10)}.pdf`,
+      subtitle: 'Listado general',
+      orientation: 'p'
+    });
+  }
 
-function exportHistorialPdf(p) {
-  const columns = ['Alimento', 'Dosis (lbs)', 'Fecha'];
-  const rows = (p.historialAlimentacion || []).map(h => {
-    const nombre = h.alimentacion?._id ? h.alimentacion?.nombre : (h.nombreSnapshot || 'Alimento (histórico)');
-    return [nombre, h.dosis, new Date(h.fecha).toLocaleDateString()];
-  });
-  exportToPdf({
-    title: `Historial de Alimentaciones - ${p.identificacion}`,
-    columns, rows,
-    fileName: `historial_${p.identificacion}_${new Date().toISOString().slice(0,10)}.pdf`,
-    orientation: 'p'
-  });
-}
-
+  function exportHistorialPdf(p) {
+    const columns = ['Alimento', 'Dosis (lbs)', 'Fecha'];
+    const rows = (p.historialAlimentacion || []).map(h => [
+      h.nombreSnapshot || 'Alimento (histórico)',
+      h.dosis,
+      new Date(h.fecha).toLocaleDateString()
+    ]);
+    exportToPdf({
+      title: `Historial de Alimentaciones - ${p.identificacion}`,
+      columns, rows,
+      fileName: `historial_${p.identificacion}_${new Date().toISOString().slice(0,10)}.pdf`,
+      orientation: 'p'
+    });
+  }
 
   function abrirHistorialModal(p) {
     setPorcinoHist(p);
@@ -249,7 +227,7 @@ function exportHistorialPdf(p) {
           <div className="form-row">
             <div>
               <label>Identificación</label>
-              <input name="identificacion" value={form.identificacion} onChange={handleChange} placeholder="Identificación única" />
+              <input name="identificacion" value={form.identificacion} onChange={handleChange} placeholder="Identificación única" disabled={!!editId} />
             </div>
             <div>
               <label>Raza</label>
@@ -291,9 +269,9 @@ function exportHistorialPdf(p) {
             </button>
             <button className="btn btn-outline" type="button" onClick={() => setShowClienteForm(true)}>Nuevo cliente</button>
             <button className="btn btn-outline" type="button" onClick={() => setShowAlimentacionForm(true)}>Nueva alimentación</button>
-              <button className="btn btn-outline" type="button" onClick={exportPorcinosPdf}>
-      Exportar PDF
-    </button>
+            <button className="btn btn-outline" type="button" onClick={exportPorcinosPdf}>
+              Exportar PDF
+            </button>
           </div>
         </form>
       </section>
@@ -321,15 +299,11 @@ function exportHistorialPdf(p) {
                 <td>{p.cliente?.nombres} {p.cliente?.apellidos}</td>
                 <td>
                   {Array.isArray(p.historialAlimentacion) && p.historialAlimentacion.length > 0
-                    ? p.historialAlimentacion.slice(-2).map(h => {
-                        const existeAlim = Boolean(h.alimentacion?._id);
-                        const nombre = existeAlim ? h.alimentacion?.nombre : (h.nombreSnapshot || 'Histórico');
-                        return (
-                          <div key={h._id} style={{ color:'var(--color-primary-900)' }}>
-                            {nombre} · {h.dosis} lbs · {new Date(h.fecha).toLocaleDateString()}
-                          </div>
-                        );
-                      })
+                    ? p.historialAlimentacion.slice(-2).map(h => (
+                        <div key={`${h.nombreSnapshot}-${h.fecha}`} style={{ color:'var(--color-primary-900)' }}>
+                          {h.nombreSnapshot || 'Histórico'} · {h.dosis} lbs · {new Date(h.fecha).toLocaleDateString()}
+                        </div>
+                      ))
                     : <span>Sin registros</span>}
                 </td>
                 <td>
@@ -359,7 +333,7 @@ function exportHistorialPdf(p) {
                 <select name="alimentacionId" value={alimentarForm.alimentacionId} onChange={handleAlimentarChange}>
                   <option value="">Seleccione</option>
                   {alimentaciones.map(a => (
-                    <option key={a._id} value={a._id}>{a.nombre} (Stock: {a.cantidadLibras} lbs)</option>
+                    <option key={a._id} value={a._id}>{a.nombre}</option>
                   ))}
                 </select>
               </div>
@@ -371,9 +345,7 @@ function exportHistorialPdf(p) {
             <div className="form-actions">
               <button className="btn btn-primary" type="submit">Guardar</button>
               <button className="btn btn-outline" type="button" onClick={() => setAlimentarModalOpen(false)}>Cancelar</button>
-
             </div>
-
           </form>
         </div>
       </Modal>
@@ -393,32 +365,22 @@ function exportHistorialPdf(p) {
               </tr>
             </thead>
             <tbody>
-              {(porcinoHist?.historialAlimentacion || []).map(h => {
-                const existeAlim = Boolean(h.alimentacion?._id);
-                const nombre = existeAlim ? h.alimentacion?.nombre : (h.nombreSnapshot || 'Alimento (histórico)');
-                return (
-                  <tr key={h._id}>
-                    <td>
-                      {nombre}
-                      {!existeAlim && <span className="badge badge-accent" style={{ marginLeft:8 }}>No editable</span>}
-                    </td>
-                    <td>{h.dosis}</td>
-                    <td>{new Date(h.fecha).toLocaleDateString()}</td>
-                    <td>
-                      {existeAlim ? (
-                        <div style={{ display:'flex', gap:8 }}>
-                          <button className="icon-btn" onClick={() => abrirEditarHist(porcinoHist, h)} aria-label="Editar" title="Editar">✏️</button>
-                          <button className="icon-btn danger" onClick={() => eliminarRegistroHist(porcinoHist, h)} aria-label="Eliminar" title="Eliminar">🗑️</button>
-                        </div>
-                      ) : (
-                        <div style={{ display:'flex', gap:8 }}>
-                          <button className="icon-btn danger" onClick={() => eliminarRegistroHist(porcinoHist, h)} aria-label="Quitar" title="Quitar registro">🗑️</button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+              {(porcinoHist?.historialAlimentacion || []).map(h => (
+                <tr key={`${h.nombreSnapshot}-${h.fecha}`}>
+                  <td>
+                    {h.nombreSnapshot || 'Alimento (histórico)'}
+                    <span className="badge badge-accent" style={{ marginLeft:8 }}>No editable</span>
+                  </td>
+                  <td>{h.dosis}</td>
+                  <td>{new Date(h.fecha).toLocaleDateString()}</td>
+                  <td>
+                    <div style={{ display:'flex', gap:8 }}>
+                      {/* Editar/Eliminar granular del historial requiere mutations extra */}
+                      <button className="icon-btn danger" onClick={() => eliminarRegistroHist(porcinoHist, h)} aria-label="Eliminar" title="Eliminar">🗑️</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
               {(!porcinoHist?.historialAlimentacion || porcinoHist.historialAlimentacion.length === 0) && (
                 <tr><td colSpan="4">Sin registros</td></tr>
               )}
@@ -426,19 +388,18 @@ function exportHistorialPdf(p) {
           </table>
           <div className="form-actions">
             <button className="btn btn-outline" onClick={() => setHistModalOpen(false)}>Cerrar</button>
-             <button className="btn btn-primary" onClick={() => exportHistorialPdf(porcinoHist)}>Exportar PDF</button>
+            <button className="btn btn-primary" onClick={() => exportHistorialPdf(porcinoHist)}>Exportar PDF</button>
           </div>
-          
         </div>
       </Modal>
 
-      {/* Modal editar historial existente */}
+      {/* Modal editar historial existente (placeholder UI, aún sin mutations GraphQL específicas) */}
       <EditarHistorialModal
         isOpen={editHistOpen}
         onRequestClose={() => setEditHistOpen(false)}
         porcino={porcinoEditRef}
         registro={registroEdit}
-        onGuardado={cargarListas}
+        onGuardado={() => qPorcinos.refetch()}
       />
     </div>
   );

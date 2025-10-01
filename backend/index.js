@@ -1,106 +1,99 @@
-// backend/index.js
-console.log('Cargando index.js desde:', __filename);
-
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const mongoose = require('mongoose');
-
-// Carga de modelos (ajusta rutas si difieren)
-require('./models/Cliente');
-require('./models/Alimentacion');
-require('./models/Porcino');
-
-// Apollo Server v4
 const { ApolloServer } = require('@apollo/server');
 const { ApolloServerPluginDrainHttpServer } = require('@apollo/server/plugin/drainHttpServer');
-
-// NOTA IMPORTANTE:
-// En algunos entornos, @apollo/server ya no expone el subpath '/express4' y el adaptador
-// externo '@as-integrations/express' puede no estar disponible en el registry utilizado.
-// Por ello, montaremos el middleware manualmente con un handler POST en /graphql,
-// lo cual es totalmente compatible con Express 5 y Apollo v4.
 
 const { typeDefs } = require('./graphql/schema');
 const { resolvers } = require('./graphql/resolvers');
 
 (async () => {
-  try {
-    const app = express();
-    const httpServer = http.createServer(app);
+  const app = express();
+  const httpServer = http.createServer(app);
 
-    // Middlewares base
-    app.use(cors());
-    app.use(express.json());
+  app.use(cors());
+  app.use(express.json());
 
-    // Salud
-    app.get('/health', (_req, res) => res.status(200).send('OK'));
+  app.get('/health', (_req, res) => res.status(200).send('OK'));
 
-    // Conexión MongoDB
-    const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/la-granja';
-    await mongoose.connect(MONGODB_URI);
-    console.log('MongoDB conectado');
+  const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/la-granja';
+  await mongoose.connect(MONGODB_URI);
+  console.log('MongoDB conectado');
 
-    // Apollo
-    const apollo = new ApolloServer({
-      typeDefs,
-      resolvers,
-      plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
-      introspection: true,
-    });
-    await apollo.start();
-    console.log('Apollo Server iniciado');
+  const apollo = new ApolloServer({
+    typeDefs,
+    resolvers,
+    plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
+    introspection: true,
+  });
+  await apollo.start();
+  console.log('Apollo Server iniciado');
 
-    // Montaje manual del endpoint GraphQL en Express 5:
-    // Acepta POST application/json y reenvía al servidor Apollo.
-    app.post('/graphql', async (req, res) => {
-      try {
-        // Apollo v4 expone el método 'executeHTTPGraphQLRequest' a través de 'apollo.executeHTTPGraphQLRequest'
-        // Pero como API interna puede variar; por compatibilidad usaremos 'server.assertStarted' + 'server.executeHTTPGraphQLRequest'.
-        apollo.assertStarted('Server no iniciado');
+  // Handler POST /graphql compatible con Apollo v4 (sin adaptador externo)
+  app.post('/graphql', async (req, res) => {
+    try {
+      apollo.assertStarted('Server no iniciado');
 
-        const httpGraphQLResponse = await apollo.executeHTTPGraphQLRequest({
-          httpGraphQLRequest: {
-            method: req.method,
-            headers: req.headers,
-            search: req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '',
-            body: req.body,
-          },
-          context: async () => ({ token: req.headers.authorization || '' }),
-        });
+      // Body robusto
+      const reqBody = typeof req.body === 'string'
+        ? JSON.parse(req.body || '{}')
+        : (req.body ?? {});
 
-        // Preparar respuesta
-        for (const [key, value] of httpGraphQLResponse.headers) {
-          res.setHeader(key, value);
-        }
-        res.status(httpGraphQLResponse.status || 200);
-        const responseBody = httpGraphQLResponse.body;
-        if (typeof responseBody === 'string') {
-          res.send(responseBody);
-        } else {
-          // Para cuerpos async-iterable, concatenar
-          let fullBody = '';
-          for await (const chunk of responseBody) {
-            fullBody += chunk;
-          }
-          res.send(fullBody);
-        }
-      } catch (e) {
-        console.error('Error en /graphql:', e);
-        res.status(500).json({ errors: [{ message: e.message || 'Error interno' }] });
+      // Headers WHATWG (Node 22 tiene Headers nativo)
+      const hdrs = new Headers();
+      for (const [k, v] of Object.entries(req.headers || {})) {
+        hdrs.set(k, Array.isArray(v) ? v.join(', ') : String(v));
       }
-    });
 
-    // Página informativa
-    app.get('/', (_req, res) => res.status(200).send('Backend La Granja S.A. - GraphQL en POST /graphql'));
+      const httpGraphQLResponse = await apollo.executeHTTPGraphQLRequest({
+        httpGraphQLRequest: {
+          method: req.method,
+          headers: hdrs,
+          search: req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '',
+          body: reqBody,
+        },
+        context: async () => ({ token: req.headers.authorization || '' }),
+      });
 
-    const PORT = process.env.PORT || 5000;
-    httpServer.listen(PORT, () => {
-      console.log(`Servidor Express 5 listo en puerto ${PORT}`);
-      console.log(`GraphQL disponible en POST http://localhost:${PORT}/graphql`);
-    });
-  } catch (err) {
-    console.error('Fallo al iniciar:', err);
-    process.exit(1);
-  }
+      // Propagar cabeceras
+      for (const [key, value] of httpGraphQLResponse.headers) {
+        res.setHeader(key, value);
+      }
+      // Forzar content-type si falta
+      if (!res.getHeader('content-type')) {
+        res.setHeader('content-type', 'application/json; charset=utf-8');
+      }
+      res.status(httpGraphQLResponse.status || 200);
+
+      // Enviar body siempre
+      const body = httpGraphQLResponse.body;
+      if (typeof body === 'string') {
+        return res.send(body);
+      }
+      if (body && typeof body[Symbol.asyncIterator] === 'function') {
+        let full = '';
+        for await (const chunk of body) full += chunk;
+        return res.send(full);
+      }
+      if (body) {
+        return res.send(body);
+      }
+      // Fallback para evitar "Server response was missing"
+      return res.send('{"data":null}');
+    } catch (e) {
+      console.error('Error en /graphql:', e);
+      return res.status(500).json({ errors: [{ message: e.message || 'Error interno' }] });
+    }
+  }); // <-- cierre del handler
+
+  app.get('/', (_req, res) =>
+    res.status(200).send('Backend La Granja S.A. - GraphQL en POST /graphql')
+  );
+
+  const PORT = process.env.PORT || 5000;
+  httpServer.listen(PORT, () => {
+    console.log(`Servidor Express 5 listo en puerto ${PORT}`);
+    console.log(`GraphQL disponible en POST http://localhost:${PORT}/graphql`);
+  });
 })();

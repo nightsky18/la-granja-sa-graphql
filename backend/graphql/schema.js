@@ -136,6 +136,13 @@ input RangoFechasInput {
   fechaInicio: String
   fechaFin: String
 }
+  input EditarHistorialInput {
+  porcinoId: ID!
+  historialId: ID!
+  alimentacionId: ID!
+  dosis: Float!
+}
+
 
 
   type Mutation {
@@ -156,7 +163,8 @@ input RangoFechasInput {
 
     # Operación de negocio
     alimentarPorcino(input: AlimentarPorcinoInput!): Porcino!
-  }
+    editarHistorialAlimentacion(input: EditarHistorialInput!): Porcino!
+    }
 `;
 
 module.exports = { typeDefs };

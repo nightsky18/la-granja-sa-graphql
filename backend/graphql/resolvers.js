@@ -5,6 +5,7 @@ const Cliente = require('../models/Cliente');
 const Alimentacion = require('../models/Alimentacion');
 const Porcino = require('../models/Porcino');
 
+// Scalar Date
 const DateScalar = new GraphQLScalarType({
   name: 'Date',
   description: 'ISO-8601 Date scalar',
@@ -13,6 +14,7 @@ const DateScalar = new GraphQLScalarType({
   parseLiteral: (ast) => (ast.kind === Kind.STRING ? new Date(ast.value) : null),
 });
 
+// Helpers
 function duplicateKeyMessage(err, fallback = 'Registro duplicado') {
   if (err && err.code === 11000) {
     const field = Object.keys(err.keyValue || {})[0];
@@ -20,12 +22,14 @@ function duplicateKeyMessage(err, fallback = 'Registro duplicado') {
   }
   return fallback;
 }
+
 const dateRange = (r) => {
   const fi = r?.fechaInicio ? new Date(r.fechaInicio) : new Date('1970-01-01');
-  const ff = r?.fechaFin ? new Date(new Date(r.fechaFin).getTime() + 24*60*60*1000) : new Date('2999-12-31');
+  const ff = r?.fechaFin
+    ? new Date(new Date(r.fechaFin).getTime() + 24 * 60 * 60 * 1000)
+    : new Date('2999-12-31');
   return { fi, ff };
 };
-
 
 const resolvers = {
   Date: DateScalar,
@@ -40,103 +44,168 @@ const resolvers = {
     alimentacion: async (_, { id }) => Alimentacion.findById(id).lean(),
 
     // Porcinos
-    porcinos: async () =>
-      Porcino.find().populate('cliente').lean(),
-    porcino: async (_, { id }) =>
-      Porcino.findById(id).populate('cliente').lean(),
+    porcinos: async () => Porcino.find().populate('cliente').lean(),
+    porcino: async (_, { id }) => Porcino.findById(id).populate('cliente').lean(),
 
+    // Reportes
     trazabilidadPorAlimento: async (_, { alimentacionId, rango }) => {
-    const { fi, ff } = dateRange(rango);
-    const pipeline = [
-      { $match: { 'historialAlimentacion.0': { $exists: true } } },
-      { $unwind: '$historialAlimentacion' },
-      { $match: { 'historialAlimentacion.fecha': { $gte: fi, $lt: ff } } },
-      ...(alimentacionId ? [{ $match: {
-        $or: [
-          { 'historialAlimentacion.alimentacion': new mongoose.Types.ObjectId(alimentacionId) },
-          // snapshot: permitido por nombre; si se desea por id antiguo, ajustar
-        ]
-      }}] : []),
-      { $lookup: { from: 'clientes', localField: 'cliente', foreignField: '_id', as: 'cliente' } },
-      { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } },
-      { $lookup: { from: 'alimentacions', localField: 'historialAlimentacion.alimentacion', foreignField: '_id', as: 'alim' } },
-      { $unwind: { path: '$alim', preserveNullAndEmptyArrays: true } },
-      { $project: {
-        porcino: '$identificacion',
-        cliente: { $concat: [{$ifNull:['$cliente.nombres','']}, ' ', {$ifNull:['$cliente.apellidos','']}] },
-        alimento: { $ifNull: ['$alim.nombre', '$historialAlimentacion.nombreSnapshot'] },
-        dosis: '$historialAlimentacion.dosis',
-        fecha: '$historialAlimentacion.fecha'
-      }},
-      { $sort: { fecha: 1 } }
-    ];
-    return Porcino.aggregate(pipeline);
+      const { fi, ff } = dateRange(rango);
+      const pipeline = [
+        { $match: { 'historialAlimentacion.0': { $exists: true } } },
+        { $unwind: '$historialAlimentacion' },
+        { $match: { 'historialAlimentacion.fecha': { $gte: fi, $lt: ff } } },
+        ...(alimentacionId
+          ? [
+              {
+                $match: {
+                  $or: [
+                    {
+                      'historialAlimentacion.alimentacion':
+                        new mongoose.Types.ObjectId(alimentacionId),
+                    },
+                  ],
+                },
+              },
+            ]
+          : []),
+        {
+          $lookup: {
+            from: 'clientes',
+            localField: 'cliente',
+            foreignField: '_id',
+            as: 'cliente',
+          },
+        },
+        { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: 'alimentacions',
+            localField: 'historialAlimentacion.alimentacion',
+            foreignField: '_id',
+            as: 'alim',
+          },
+        },
+        { $unwind: { path: '$alim', preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            porcino: '$identificacion',
+            cliente: {
+              $concat: [
+                { $ifNull: ['$cliente.nombres', ''] },
+                ' ',
+                { $ifNull: ['$cliente.apellidos', ''] },
+              ],
+            },
+            alimento: {
+              $ifNull: ['$alim.nombre', '$historialAlimentacion.nombreSnapshot'],
+            },
+            dosis: '$historialAlimentacion.dosis',
+            fecha: '$historialAlimentacion.fecha',
+          },
+        },
+        { $sort: { fecha: 1 } },
+      ];
+      return Porcino.aggregate(pipeline);
+    },
+
+    consumoPorCliente: async (_, { rango }) => {
+      const { fi, ff } = dateRange(rango);
+      const pipeline = [
+        { $match: { 'historialAlimentacion.0': { $exists: true } } },
+        { $unwind: '$historialAlimentacion' },
+        { $match: { 'historialAlimentacion.fecha': { $gte: fi, $lt: ff } } },
+        {
+          $lookup: {
+            from: 'clientes',
+            localField: 'cliente',
+            foreignField: '_id',
+            as: 'cliente',
+          },
+        },
+        { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } },
+        {
+          $group: {
+            _id: '$cliente._id',
+            cliente: {
+              $first: {
+                $concat: [
+                  { $ifNull: ['$cliente.nombres', ''] },
+                  ' ',
+                  { $ifNull: ['$cliente.apellidos', ''] },
+                ],
+              },
+            },
+            totalLbs: { $sum: '$historialAlimentacion.dosis' },
+            eventos: { $sum: 1 },
+            porcinos: { $addToSet: '$identificacion' },
+          },
+        },
+        { $project: { cliente: 1, totalLbs: 1, eventos: 1, porcinos: { $size: '$porcinos' } } },
+        { $sort: { totalLbs: -1 } },
+      ];
+      return Porcino.aggregate(pipeline);
+    },
+
+    consumoPorAlimentacion: async (_, { rango }) => {
+      const { fi, ff } = dateRange(rango);
+      const pipeline = [
+        { $match: { 'historialAlimentacion.0': { $exists: true } } },
+        { $unwind: '$historialAlimentacion' },
+        { $match: { 'historialAlimentacion.fecha': { $gte: fi, $lt: ff } } },
+        {
+          $lookup: {
+            from: 'alimentacions',
+            localField: 'historialAlimentacion.alimentacion',
+            foreignField: '_id',
+            as: 'alim',
+          },
+        },
+        { $unwind: { path: '$alim', preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            alimento: {
+              $ifNull: ['$alim.nombre', '$historialAlimentacion.nombreSnapshot'],
+            },
+            dosis: '$historialAlimentacion.dosis',
+          },
+        },
+        {
+          $group: {
+            _id: '$alimento',
+            alimento: { $first: '$alimento' },
+            eventos: { $sum: 1 },
+            totalLbs: { $sum: '$dosis' },
+          },
+        },
+        { $sort: { totalLbs: -1 } },
+      ];
+      const rows = await Porcino.aggregate(pipeline);
+      const total = rows.reduce((a, b) => a + (b.totalLbs || 0), 0);
+      return rows.map((r) => ({
+        ...r,
+        porcentaje: total ? (r.totalLbs * 100) / total : 0,
+      }));
+    },
   },
 
-  consumoPorCliente: async (_, { rango }) => {
-    const { fi, ff } = dateRange(rango);
-    const pipeline = [
-      { $match: { 'historialAlimentacion.0': { $exists: true } } },
-      { $unwind: '$historialAlimentacion' },
-      { $match: { 'historialAlimentacion.fecha': { $gte: fi, $lt: ff } } },
-      { $lookup: { from: 'clientes', localField: 'cliente', foreignField: '_id', as: 'cliente' } },
-      { $unwind: { path: '$cliente', preserveNullAndEmptyArrays: true } },
-      { $group: {
-        _id: '$cliente._id',
-        cliente: { $first: { $concat: [{$ifNull:['$cliente.nombres','']}, ' ', {$ifNull:['$cliente.apellidos','']}] } },
-        totalLbs: { $sum: '$historialAlimentacion.dosis' },
-        eventos: { $sum: 1 },
-        porcinos: { $addToSet: '$identificacion' }
-      }},
-      { $project: { cliente:1, totalLbs:1, eventos:1, porcinos: { $size: '$porcinos' } } },
-      { $sort: { totalLbs: -1 } }
-    ];
-    return Porcino.aggregate(pipeline);
-  },
-
-  consumoPorAlimentacion: async (_, { rango }) => {
-    const { fi, ff } = dateRange(rango);
-    const pipeline = [
-      { $match: { 'historialAlimentacion.0': { $exists: true } } },
-      { $unwind: '$historialAlimentacion' },
-      { $match: { 'historialAlimentacion.fecha': { $gte: fi, $lt: ff } } },
-      { $lookup: { from: 'alimentacions', localField: 'historialAlimentacion.alimentacion', foreignField: '_id', as: 'alim' } },
-      { $unwind: { path: '$alim', preserveNullAndEmptyArrays: true } },
-      { $project: {
-        alimento: { $ifNull: ['$alim.nombre', '$historialAlimentacion.nombreSnapshot'] },
-        dosis: '$historialAlimentacion.dosis'
-      }},
-      { $group: {
-        _id: '$alimento',
-        alimento: { $first: '$alimento' },
-        eventos: { $sum: 1 },
-        totalLbs: { $sum: '$dosis' }
-      }},
-      { $sort: { totalLbs: -1 } }
-    ];
-    const rows = await Porcino.aggregate(pipeline);
-    const total = rows.reduce((a,b)=>a + (b.totalLbs||0), 0);
-    return rows.map(r => ({ ...r, porcentaje: total ? (r.totalLbs*100/total) : 0 }));
-  },
-
-  },
-  
   Mutation: {
     // Clientes
-crearCliente: async (_, { data }) => {
-  data.cedula = (data.cedula || '').trim();
-  data.nombres = (data.nombres || '').trim();
-  data.apellidos = (data.apellidos || '').trim();
-  data.direccion = (data.direccion || '').trim();
-  if (!/^\d{10}$/.test(data.telefono || '')) throw new Error('Teléfono debe tener exactamente 10 números.');
-  if (data.nombres.length < 3 || data.apellidos.length < 3) throw new Error('Nombre y apellido deben tener al menos 3 caracteres.');
-  try {
-    const doc = await Cliente.create(data);
-    return doc.toObject();
-  } catch (err) {
-    throw new Error(duplicateKeyMessage(err, 'La cédula ya está registrada.'));
-  }
-},
+    crearCliente: async (_, { data }) => {
+      data.cedula = (data.cedula || '').trim();
+      data.nombres = (data.nombres || '').trim();
+      data.apellidos = (data.apellidos || '').trim();
+      data.direccion = (data.direccion || '').trim();
+      if (!/^\d{10}$/.test(data.telefono || ''))
+        throw new Error('Teléfono debe tener exactamente 10 números.');
+      if (data.nombres.length < 3 || data.apellidos.length < 3)
+        throw new Error('Nombre y apellido deben tener al menos 3 caracteres.');
+      try {
+        const doc = await Cliente.create(data);
+        return doc.toObject();
+      } catch (err) {
+        throw new Error(duplicateKeyMessage(err, 'La cédula ya está registrada.'));
+      }
+    },
 
     actualizarCliente: async (_, { id, data }) => {
       if (data.telefono && !/^\d{10}$/.test(data.telefono)) {
@@ -149,13 +218,17 @@ crearCliente: async (_, { data }) => {
         throw new Error('Apellido debe tener al menos 3 caracteres.');
       }
       try {
-        const updated = await Cliente.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean();
+        const updated = await Cliente.findByIdAndUpdate(id, data, {
+          new: true,
+          runValidators: true,
+        }).lean();
         if (!updated) throw new Error('Cliente no encontrado.');
         return updated;
       } catch (err) {
         throw new Error(duplicateKeyMessage(err, 'No se pudo actualizar el cliente.'));
       }
     },
+
     eliminarCliente: async (_, { id }) => {
       const res = await Cliente.findByIdAndDelete(id);
       return !!res;
@@ -172,18 +245,23 @@ crearCliente: async (_, { data }) => {
         throw new Error(duplicateKeyMessage(err, 'No se pudo crear la alimentación.'));
       }
     },
+
     actualizarAlimentacion: async (_, { id, data }) => {
       if (data.cantidadLibras != null && data.cantidadLibras < 0) {
         throw new Error('El stock no puede ser negativo.');
       }
       try {
-        const updated = await Alimentacion.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean();
+        const updated = await Alimentacion.findByIdAndUpdate(id, data, {
+          new: true,
+          runValidators: true,
+        }).lean();
         if (!updated) throw new Error('Alimentación no encontrada.');
         return updated;
       } catch (err) {
         throw new Error(duplicateKeyMessage(err, 'No se pudo actualizar la alimentación.'));
       }
     },
+
     eliminarAlimentacion: async (_, { id }) => {
       const res = await Alimentacion.findByIdAndDelete(id);
       return !!res;
@@ -196,13 +274,7 @@ crearCliente: async (_, { data }) => {
       if (edad < 0) throw new Error('La edad no puede ser negativa.');
       if (peso < 0) throw new Error('El peso no puede ser negativo.');
 
-      const porcinoData = {
-        identificacion,
-        raza,
-        edad,
-        peso,
-        historialAlimentacion: [],
-      };
+      const porcinoData = { identificacion, raza, edad, peso, historialAlimentacion: [] };
 
       if (clienteId) {
         const cli = await Cliente.findById(clienteId).lean();
@@ -222,14 +294,21 @@ crearCliente: async (_, { data }) => {
       const patch = { ...data };
       if (patch.edad != null && patch.edad < 0) throw new Error('La edad no puede ser negativa.');
       if (patch.peso != null && patch.peso < 0) throw new Error('El peso no puede ser negativo.');
-      if (patch.clienteId) {
-        const cli = await Cliente.findById(patch.clienteId).lean();
-        if (!cli) throw new Error('Cliente asociado no existe.');
-        patch.cliente = patch.clienteId;
+      if (Object.prototype.hasOwnProperty.call(patch, 'clienteId')) {
+        if (patch.clienteId) {
+          const cli = await Cliente.findById(patch.clienteId).lean();
+          if (!cli) throw new Error('Cliente asociado no existe.');
+          patch.cliente = patch.clienteId;
+        } else {
+          patch.cliente = null;
+        }
         delete patch.clienteId;
       }
       try {
-        const updated = await Porcino.findByIdAndUpdate(id, patch, { new: true, runValidators: true })
+        const updated = await Porcino.findByIdAndUpdate(id, patch, {
+          new: true,
+          runValidators: true,
+        })
           .populate('cliente')
           .lean();
         if (!updated) throw new Error('Porcino no encontrado.');
@@ -244,46 +323,42 @@ crearCliente: async (_, { data }) => {
       return !!res;
     },
 
-    // Operación de negocio: alimentar porcino
-   alimentarPorcino: async (_, { input }) => {
-  const { porcinoId, alimentacionId, dosis } = input;
-  if (dosis <= 0) throw new Error('La dosis debe ser mayor a 0.');
+    // Operación de negocio
+    alimentarPorcino: async (_, { input }) => {
+      const { porcinoId, alimentacionId, dosis } = input;
+      if (dosis <= 0) throw new Error('La dosis debe ser mayor a 0.');
 
-  const porcino = await Porcino.findById(porcinoId);
-  if (!porcino) throw new Error('Porcino no encontrado.');
+      const porcino = await Porcino.findById(porcinoId);
+      if (!porcino) throw new Error('Porcino no encontrado.');
 
-  const alimento = await Alimentacion.findById(alimentacionId);
-  if (!alimento) throw new Error('Alimentación no encontrada.');
+      const alimento = await Alimentacion.findById(alimentacionId);
+      if (!alimento) throw new Error('Alimentación no encontrada.');
 
-  if (alimento.cantidadLibras < dosis) throw new Error('Stock insuficiente para la dosis.');
+      if (alimento.cantidadLibras < dosis) throw new Error('Stock insuficiente para la dosis.');
 
-  // Descontar stock y guardar
-  alimento.cantidadLibras -= dosis;
-  await alimento.save();
+      // Actualizar stock
+      alimento.cantidadLibras -= dosis;
+      await alimento.save();
 
-  // Registrar historial con snapshot
-  porcino.historialAlimentacion = porcino.historialAlimentacion || [];
-  porcino.historialAlimentacion.push({
-    alimentacion: alimento._id,
-    nombreSnapshot: alimento.nombre,
-    descripcionSnapshot: alimento.descripcion || null,
-    dosis,
-    fecha: new Date(),
-  });
-  await porcino.save();
+      // Registrar historial con snapshot
+      porcino.historialAlimentacion = porcino.historialAlimentacion || [];
+      porcino.historialAlimentacion.push({
+        alimentacion: alimento._id,
+        nombreSnapshot: alimento.nombre,
+        descripcionSnapshot: alimento.descripcion || null,
+        dosis,
+        fecha: new Date(),
+      });
+      await porcino.save();
 
-  // Devolver porcino actualizado
-  const refreshed = await Porcino.findById(porcinoId).populate('cliente').lean();
-  return refreshed;
-},
-
+      // Devolver porcino actualizado
+      const refreshed = await Porcino.findById(porcinoId).populate('cliente').lean();
+      return refreshed;
+    },
   },
 
-  // Resolvers de campos (si historial usa referencias)
   Porcino: {
-    // Si se requiere poblar historial en lecturas, aquí se podría resolver cada item.
-    // Mantener simple: se devuelve lo embebido tal como está; si se necesita el doc completo de Alimentacion,
-    // podría agregarse una consulta aquí por cada item (o un data loader).
+    // Resolvers de campos adicionales si se requieren
   },
 };
 
