@@ -10,7 +10,13 @@ export const Q_PORCINOS = gql`
       edad
       peso
       cliente { _id cedula nombres apellidos }
-      historialAlimentacion { dosis fecha nombreSnapshot }
+      historialAlimentacion {
+        _id
+        dosis
+        fecha
+        nombreSnapshot
+        alimentacion { _id nombre }
+      }
     }
   }
 `;
@@ -64,16 +70,28 @@ export const M_ALIMENTAR_PORCINO = gql`
     alimentarPorcino(input: $input) {
       _id
       identificacion
-      historialAlimentacion { dosis fecha nombreSnapshot }
+      historialAlimentacion {
+        _id
+        dosis
+        fecha
+        nombreSnapshot
+        alimentacion { _id nombre }
+      }
     }
   }
 `;
-export const M_EDITAR_HISTORIAL = gql`
-  mutation EditarHistorial($input: EditarHistorialInput!) {
-    editarHistorialAlimentacion(input: $input) {
+
+export const M_ELIMINAR_HISTORIAL = gql`
+  mutation EliminarHistorial($porcinoId: ID!, $historialId: ID!) {
+    eliminarHistorialAlimentacion(porcinoId: $porcinoId, historialId: $historialId) {
       _id
-      identificacion
-      historialAlimentacion { dosis fecha nombreSnapshot }
+      historialAlimentacion {
+        _id
+        dosis
+        fecha
+        nombreSnapshot
+        alimentacion { _id nombre }
+      }
     }
   }
 `;
@@ -83,20 +101,6 @@ export const M_ACTUALIZAR_HISTORIAL = gql`
     actualizarHistorialAlimentacion(porcinoId: $porcinoId, historialId: $historialId, data: $data) {
       _id
       historialAlimentacion { _id dosis fecha nombreSnapshot alimentacion { _id nombre } }
-    }
-  }
-`;
-export const M_ELIMINAR_HISTORIAL = gql`
-  mutation EliminarHistorial($porcinoId: ID!, $historialId: ID!) {
-    eliminarHistorialAlimentacion(porcinoId: $porcinoId, historialId: $historialId) {
-      _id
-      historialAlimentacion {
-  _id
-  dosis
-  fecha
-  nombreSnapshot
-  alimentacion { _id nombre }
-}
     }
   }
 `;
