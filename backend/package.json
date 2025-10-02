@@ -12,10 +12,12 @@
   "dependencies": {
     "@apollo/server": "^5.0.0",
     "cors": "^2.8.5",
+    "csv-parser": "^3.2.0",
     "express": "^5.1.0",
     "graphql": "^16.11.0",
     "graphql-tag": "^2.12.6",
     "mongoose": "^8.18.3",
+    "multer": "^2.0.2",
     "sweetalert": "^2.1.2"
   }
 }

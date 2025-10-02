@@ -8,7 +8,7 @@ import EditarHistorialModal from './EditarHistorialModal';
 import { usePorcinos } from '../hooks/usePorcinos';
 import { Q_PORCINOS, M_ELIMINAR_HISTORIAL } from '../graphql/porcino.gql';
 import { useMutation } from '@apollo/client';
-
+import ImportarCSVModal from './ImportarCSVModal';
 
 
 export default function PorcinoCRUD() {
@@ -19,6 +19,7 @@ export default function PorcinoCRUD() {
   const [porcinos, setPorcinos] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [alimentaciones, setAlimentaciones] = useState([]);
+  const [importModalOpen, setImportModalOpen] = useState(false);
 
   const [editHistOpen, setEditHistOpen] = useState(false);
   const [registroEdit, setRegistroEdit] = useState(null);
@@ -315,8 +316,23 @@ async function eliminarRegistroHist(p, reg) {
             <button className="btn btn-outline" type="button" onClick={exportPorcinosPdf}>
               Exportar PDF
             </button>
+            <button 
+                className="btn btn-outline" 
+                type="button" 
+                onClick={() => setImportModalOpen(true)}
+              >
+                📥 Importar desde CSV
+            </button>
           </div>
         </form>
+              <ImportarCSVModal
+                isOpen={importModalOpen}
+                onRequestClose={() => setImportModalOpen(false)}
+                tipo="porcinos"
+                onImportSuccess={() => {
+                  qPorcinos.refetch();
+                }}
+              />
       </section>
 
       <section className="section card">

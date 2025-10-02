@@ -3,12 +3,14 @@ import React, { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 import { useClientes } from '../hooks/useClientes';
 import { Q_CLIENTES } from '../graphql/cliente.gql';
+import ImportarCSVModal from './ImportarCSVModal';
 
 export default function ClienteCRUD({ minimalMode, onSaved, onCancel }) {
   const { list, crear, actualizar, eliminar } = useClientes();
   const [clientes, setClientes] = useState([]);
   const [form, setForm] = useState({ cedula: '', nombres: '', apellidos: '', direccion: '',  telefono: '' });
   const [editId, setEditId] = useState(null);
+  const [importModalOpen, setImportModalOpen] = useState(false);
 
   // Sincronizar estado local cuando hay data
   useEffect(() => {
@@ -194,6 +196,22 @@ console.log('ClienteCRUD render: len data', list.data?.clientes?.length, 'error?
             >
               Limpiar
             </button>
+            <button 
+              className="btn btn-outline" 
+              type="button" 
+              onClick={() => setImportModalOpen(true)}
+            >
+              📥 Importar desde CSV
+            </button>
+
+            <ImportarCSVModal
+              isOpen={importModalOpen}
+              onRequestClose={() => setImportModalOpen(false)}
+              tipo="clientes"
+              onImportSuccess={() => {
+                list.refetch(); // ← Cambiar de qClientes a list
+              }}
+            />
           </div>
         </form>
       </section>
