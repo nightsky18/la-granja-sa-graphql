@@ -8,6 +8,8 @@ const { ApolloServerPluginDrainHttpServer } = require('@apollo/server/plugin/dra
 const { typeDefs } = require('./graphql/schema');
 const { resolvers } = require('./graphql/resolvers');
 
+const importarRoutes = require('./routes/importarRoutes');
+
 (async () => {
   const app = express();
   const httpServer = http.createServer(app);
@@ -15,7 +17,8 @@ const { resolvers } = require('./graphql/resolvers');
   // Middlewares
   app.use(cors());
   app.use(express.json());
-
+  app.use('/api/importar', importarRoutes);
+  
   // Healthcheck
   app.get('/health', (_req, res) => res.status(200).send('OK'));
 

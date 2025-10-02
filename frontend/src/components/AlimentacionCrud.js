@@ -3,6 +3,7 @@ import Modal from 'react-modal';
 import Swal from 'sweetalert2';
 import { useAlimentaciones } from '../hooks/useAlimentaciones';
 import { usePorcinosMin } from '../hooks/usePorcinosMin';
+import ImportarCSVModal from './ImportarCSVModal';
 
 function AlimentarPorcinoInline({ alimentacion, onDone }) {
   const [isOpen, setOpen] = useState(false);
@@ -75,6 +76,7 @@ export default function AlimentacionCrud() {
   const [items, setItems] = useState([]);
   const [form, setForm] = useState({ id: '', nombre: '', descripcion: '', cantidadLibras: 0 });
   const [editId, setEditId] = useState(null);
+  const [importModalOpen, setImportModalOpen] = useState(false);
 
   useEffect(() => {
     if (list.data?.alimentaciones) setItems(list.data.alimentaciones);
@@ -180,6 +182,22 @@ export default function AlimentacionCrud() {
             <button className="btn btn-outline" type="button" onClick={reset}>
               Limpiar
             </button>
+            <button 
+              className="btn btn-outline" 
+              type="button" 
+              onClick={() => setImportModalOpen(true)}
+            >
+              📥 Importar desde CSV
+            </button>
+
+            <ImportarCSVModal
+              isOpen={importModalOpen}
+              onRequestClose={() => setImportModalOpen(false)}
+              tipo="alimentaciones"
+              onImportSuccess={() => {
+                list.refetch();
+              }}
+            />
           </div>
         </form>
       </section>
