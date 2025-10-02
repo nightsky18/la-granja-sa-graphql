@@ -37,21 +37,20 @@ export default function PorcinoCRUD() {
 
   const [histModalOpen, setHistModalOpen] = useState(false);
   const [porcinoHist, setPorcinoHist] = useState(null);
-
-
-  const [eliminarHist] = useMutation(M_ELIMINAR_HISTORIAL, {
-  refetchQueries: [{ query: Q_PORCINOS }],
-  awaitRefetchQueries: true,
+const [eliminarHist] = useMutation(M_ELIMINAR_HISTORIAL, {
   update(cache, { data }) {
     const porc = data?.eliminarHistorialAlimentacion;
     if (!porc) return;
-    const prev = cache.readQuery({ query: Q_PORCINOS }) || { porcinos: [] };
+    const prev = cache.readQuery({ query: Q_PORCINOS });
+    if (!prev?.porcinos) return;
     cache.writeQuery({
       query: Q_PORCINOS,
       data: { porcinos: prev.porcinos.map(p => (p._id === porc._id ? porc : p)) },
     });
   },
 });
+
+
 
   // Sincronizar resultados de GraphQL con estados de UI
   useEffect(() => {
@@ -102,14 +101,27 @@ export default function PorcinoCRUD() {
       return Swal.fire('Error', msg, 'error');
     }
   }
-  async function onEliminarClick(porcinoId, historialId) {
+
+async function onEliminarClick(porcinoId, historialId) {
+  if (!porcinoId || !historialId) {
+    return Swal.fire('Error', 'No se encontró el identificador del registro de historial.', 'error');
+  }
   const ok = await Swal.fire({ title: 'Eliminar registro?', icon: 'warning', showCancelButton: true });
   if (!ok.isConfirmed) return;
-  await eliminarHist({ variables: { porcinoId, historialId } });
-  Swal.fire('Eliminado', 'Registro removido del historial.', 'success');
+
+  const { data } = await eliminarHist({ variables: { porcinoId, historialId } });
+  const porcUpdated = data?.eliminarHistorialAlimentacion;
+  if (porcUpdated) {
+    // 1) Actualiza la cache de la tabla
+    const prev = qPorcinos.data?.porcinos || [];
+    setPorcinos(prev.map(p => (p._id === porcUpdated._id ? porcUpdated : p)));
+    // 2) Si el modal está abierto y es el mismo porcino, refresca su estado
+    setPorcinoHist((curr) => (curr && curr._id === porcUpdated._id ? porcUpdated : curr));
+  }
+  // 3) Refresca stock para ver cambio en selects (si hay vista de stock)
+  qAlims.refetch();
+  await Swal.fire('Eliminado', 'Registro removido del historial.', 'success');
 }
-
-
 
 
   function edit(p) {
@@ -130,7 +142,8 @@ export default function PorcinoCRUD() {
     setEditHistOpen(true);
   }
 
-  async function eliminarRegistroHist(p, reg) {
+async function eliminarRegistroHist(p, reg) {
+    // Reemplazado por onEliminarClick
     const ok = await Swal.fire({
       title: '¿Eliminar registro?',
       icon: 'warning',
@@ -138,13 +151,15 @@ export default function PorcinoCRUD() {
       confirmButtonText: 'Sí, eliminar',
       cancelButtonText: 'Cancelar',
       customClass: { confirmButton: 'btn btn-danger', cancelButton: 'btn btn-outline' },
-      buttonsStyling: false
+      buttonsStyling: false,
     });
     if (!ok.isConfirmed) return;
+    await eliminarHist({ variables: { porcinoId: p._id, historialId: reg._id } });
+    await Swal.fire('Eliminado', 'Registro removido del historial.', 'success');
+    qPorcinos.refetch();
+  }
 
   
-    return Swal.fire('Pendiente', 'La edición/eliminación granular del historial se expone por REST. Se puede añadir como mutations GraphQL si lo necesitas.', 'info');
-  }
 
   async function del(id) {
     const confirm = await Swal.fire({
@@ -354,8 +369,10 @@ export default function PorcinoCRUD() {
 <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
   <button className="icon-btn primary" onClick={() => abrirModalAlimentar(p)} title="Agregar alimentación">🌾➕</button>
   <button className="icon-btn" onClick={() => edit(p)} title="Editar">✏️</button>
+   <button className="btn btn-danger" onClick={() => del(p._id)} title="Eliminar porcino">🗑️</button>
   <button className="icon-btn" onClick={() => abrirHistorialModal(p)} title="Ver historial">📜</button>
-  <button className="btn btn-danger" onClick={() => del(p._id)} title="Eliminar porcino">🗑️</button>
+ 
+
 </div>
                 </td>
               </tr>
@@ -414,14 +431,29 @@ export default function PorcinoCRUD() {
       <td>{h.nombreSnapshot || 'Alimento (histórico)'}</td>
       <td>{h.dosis}</td>
       <td>{new Date(h.fecha).toLocaleDateString()}</td>
-      <td>
-        <div style={{ display:'flex', gap:8 }}>
-          <button className="icon-btn danger"
-                  onClick={() => onEliminarClick(porcinoHist._id, h._id)}
-                  title="Eliminar">🗑️</button>
-          {/* Si habilitas edición: abrirEditarHist(porcinoHist, h) */}
-        </div>
-      </td>
+<td>
+  <div style={{ display:'flex', gap:8 }}>
+    {h.alimentacion?._id ? (
+      <button
+        className="icon-btn"
+        onClick={() => abrirEditarHist(porcinoHist, h)}
+        title="Editar"
+      >
+        ✏️
+      </button>
+    ) : (
+      <span className="badge">No editable</span>
+    )}
+    <button
+      className="icon-btn danger"
+      onClick={() => onEliminarClick(porcinoHist._id, h._id)}
+      title="Eliminar"
+      disabled={!h._id}
+    >
+      🗑️
+    </button>
+  </div>
+</td>
     </tr>
   ))}
   {(!porcinoHist?.historialAlimentacion || porcinoHist.historialAlimentacion.length === 0) && (
@@ -437,13 +469,22 @@ export default function PorcinoCRUD() {
       </Modal>
 
       {/* Modal editar historial existente (placeholder UI, aún sin mutations GraphQL específicas) */}
-      <EditarHistorialModal
-        isOpen={editHistOpen}
-        onRequestClose={() => setEditHistOpen(false)}
-        porcino={porcinoEditRef}
-        registro={registroEdit}
-        onGuardado={() => qPorcinos.refetch()}
-      />
+<EditarHistorialModal
+  isOpen={editHistOpen}
+  onRequestClose={() => setEditHistOpen(false)}
+  porcino={porcinoEditRef}
+  registro={registroEdit}
+  onGuardado={(porcUpdated) => {
+    if (porcUpdated) {
+      setPorcinos((prev) => prev.map(p => (p._id === porcUpdated._id ? porcUpdated : p)));
+      setPorcinoHist((curr) => (curr && curr._id === porcUpdated._id ? porcUpdated : curr));
+      qAlims.refetch(); // ver stock actualizado
+    } else {
+      qPorcinos.refetch();
+      qAlims.refetch();
+    }
+  }}
+/>
     </div>
   );
 }

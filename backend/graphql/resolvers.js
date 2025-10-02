@@ -32,7 +32,9 @@ const dateRange = (r) => {
 };
 
 const resolvers = {
+  
   Date: DateScalar,
+  
 
   Query: {
     // Clientes
@@ -44,9 +46,20 @@ const resolvers = {
     alimentacion: async (_, { id }) => Alimentacion.findById(id).lean(),
 
     // Porcinos
-    porcinos: async () => Porcino.find().populate('cliente').lean(),
-    porcino: async (_, { id }) => Porcino.findById(id).populate('cliente').lean(),
+porcinos: async () => {
+  return Porcino.find()
+    .populate('cliente')
+    .populate('historialAlimentacion.alimentacion') // clave para que alimentacion {_id nombre} exista
+    .lean();
+},
 
+// Query: porcino
+porcino: async (_, { id }) => {
+  return Porcino.findById(id)
+    .populate('cliente')
+    .populate('historialAlimentacion.alimentacion')
+    .lean();
+},
     // Reportes
     trazabilidadPorAlimento: async (_, { alimentacionId, rango }) => {
       const { fi, ff } = dateRange(rango);
@@ -246,26 +259,106 @@ const resolvers = {
       }
     },
 
-    actualizarAlimentacion: async (_, { id, data }) => {
-      if (data.cantidadLibras != null && data.cantidadLibras < 0) {
-        throw new Error('El stock no puede ser negativo.');
-      }
-      try {
-        const updated = await Alimentacion.findByIdAndUpdate(id, data, {
-          new: true,
-          runValidators: true,
-        }).lean();
-        if (!updated) throw new Error('Alimentación no encontrada.');
-        return updated;
-      } catch (err) {
-        throw new Error(duplicateKeyMessage(err, 'No se pudo actualizar la alimentación.'));
-      }
-    },
+    async actualizarHistorialAlimentacion(_, { porcinoId, historialId, data }) {
+    const porcino = await Porcino.findById(porcinoId);
+    if (!porcino) throw new Error('Porcino no encontrado'); // [attached_file:1]
+    const item = porcino.historialAlimentacion.id(historialId);
+    if (!item) throw new Error('Entrada de historial no encontrada'); // [attached_file:1]
 
-    eliminarAlimentacion: async (_, { id }) => {
-      const res = await Alimentacion.findByIdAndDelete(id);
-      return !!res;
-    },
+    // Si el registro no tiene referencia a alimentación, es de solo lectura
+    if (!item.alimentacion) {
+      throw new Error('La alimentación original fue eliminada; este registro histórico es de solo lectura.'); // [attached_file:1]
+    }
+
+    // Cargar alimentación anterior y validar existencia
+    const alimAnterior = await Alimentacion.findById(item.alimentacion);
+    if (!alimAnterior) {
+      throw new Error('La alimentación original fue eliminada; este registro histórico es de solo lectura.'); // [attached_file:1]
+    }
+
+    // Determinar nueva dosis y posible cambio de alimentación
+    const nuevaDosis = typeof data.dosis === 'number' ? data.dosis : item.dosis;
+    if (nuevaDosis <= 0) throw new Error('La dosis debe ser mayor a 0.'); // regla consistente con alimentarPorcino [attached_file:1]
+
+    const cambiaAlimento = !!data.alimentacionId && String(data.alimentacionId) !== String(item.alimentacion);
+
+    if (!cambiaAlimento) {
+      // Mismo alimento: ajustar stock por delta
+      const delta = nuevaDosis - item.dosis;
+      if (delta > 0) {
+        if (alimAnterior.cantidadLibras < delta) {
+          throw new Error('Stock insuficiente para la dosis.'); // [attached_file:1]
+        }
+        alimAnterior.cantidadLibras -= delta;
+        await alimAnterior.save();
+      } else if (delta < 0) {
+        alimAnterior.cantidadLibras += Math.abs(delta);
+        await alimAnterior.save();
+      }
+      // Actualizar campos del historial
+      item.dosis = nuevaDosis;
+      if (data.fecha) item.fecha = new Date(data.fecha);
+      await porcino.save();
+
+      // Devolver porcino poblado como en alimentarPorcino
+      const refreshed = await Porcino.findById(porcinoId).populate('cliente').lean();
+      return refreshed; // [attached_file:1]
+    }
+
+    // Cambia alimentación: devolver a anterior, descontar de nueva, actualizar snapshot
+    const alimNueva = await Alimentacion.findById(data.alimentacionId);
+    if (!alimNueva) throw new Error('Alimentación no encontrada'); // [attached_file:1]
+
+    // Devolver stock a la alimentación anterior por la dosis anterior
+    const dosisAnterior = item.dosis;
+    alimAnterior.cantidadLibras += dosisAnterior;
+    await alimAnterior.save();
+
+    // Validar stock en nueva alimentación y descontar
+    if (alimNueva.cantidadLibras < nuevaDosis) {
+      // revertir devolución para no dejar inconsistencia
+      alimAnterior.cantidadLibras -= dosisAnterior;
+      await alimAnterior.save();
+      throw new Error('Stock insuficiente para la dosis en la nueva alimentación.'); // [attached_file:1]
+    }
+    alimNueva.cantidadLibras -= nuevaDosis;
+    await alimNueva.save();
+
+    // Actualizar historial: referencia y snapshot
+    item.alimentacion = alimNueva._id;
+    item.nombreSnapshot = alimNueva.nombre;
+    item.descripcionSnapshot = alimNueva.descripcion || null;
+    item.dosis = nuevaDosis;
+    if (data.fecha) item.fecha = new Date(data.fecha);
+    await porcino.save();
+
+    const refreshed = await Porcino.findById(porcinoId).populate('cliente').lean();
+    return refreshed; // [attached_file:1]
+  },
+
+  async eliminarHistorialAlimentacion(_, { porcinoId, historialId }) {
+    const porcino = await Porcino.findById(porcinoId);
+    if (!porcino) throw new Error('Porcino no encontrado'); // [attached_file:1]
+    const item = porcino.historialAlimentacion.id(historialId);
+    if (!item) throw new Error('Entrada de historial no encontrada'); // [attached_file:1]
+
+    // Si hay referencia de alimentación y existe, devolver stock por la dosis
+    if (item.alimentacion) {
+      const alim = await Alimentacion.findById(item.alimentacion);
+      if (alim) {
+        alim.cantidadLibras += item.dosis;
+        await alim.save();
+      }
+    }
+
+    item.deleteOne();
+    await porcino.save();
+
+    // Devolver porcino poblado para coherencia
+    const refreshed = await Porcino.findById(porcinoId).populate('cliente').lean();
+    return refreshed; // [attached_file:1]
+  },
+
 
     // Porcinos
     crearPorcino: async (_, { data }) => {
@@ -307,8 +400,29 @@ const resolvers = {
     }
 
     await porcino.save();
+      const refreshed = await Porcino.findById(porcinoId)
+    .populate('cliente')
+    .populate('historialAlimentacion.alimentacion')
+    .lean();
+  return refreshed;
     return porcino;
   },
+  actualizarAlimentacion: async (_, { id, data }) => {
+  if (data.cantidadLibras != null && data.cantidadLibras < 0) {
+    throw new Error('El stock no puede ser negativo.');
+  } // validación ya presente [attached_file:5]
+  try {
+    const updated = await Alimentacion.findByIdAndUpdate(id, data, {
+      new: true,
+      runValidators: true,
+    }).lean();
+    if (!updated) throw new Error('Alimentación no encontrada.');
+    return updated;
+  } catch (err) {
+    throw new Error(duplicateKeyMessage(err, 'No se pudo actualizar la alimentación.'));
+  }
+},
+
 
   async eliminarHistorialAlimentacion(_, { porcinoId, historialId }) {
     const porcino = await Porcino.findById(porcinoId);
@@ -353,6 +467,8 @@ const resolvers = {
       return !!res;
     },
 
+    
+
     // Operación de negocio
     alimentarPorcino: async (_, { input }) => {
       const { porcinoId, alimentacionId, dosis } = input;
@@ -387,10 +503,23 @@ const resolvers = {
     },
   },
 
+    HistorialAlimentacion: {
+    alimentacion: async (parent) => {
+      // Si no hay referencia -> null (UI mostrará snapshot)
+      if (!parent?.alimentacion) return null;
+      // Si ya viene poblado por el populate, úsalo
+      if (parent.alimentacion?.nombre) return parent.alimentacion;
+      // Si es solo ObjectId, cargar el documento; si no existe, null
+      const doc = await Alimentacion.findById(parent.alimentacion).lean();
+      return doc || null;
+    },
+  },
+
   
   Porcino: {
     // Resolvers de campos adicionales si se requieren
   },
+  
 };
 
 module.exports = { resolvers };
