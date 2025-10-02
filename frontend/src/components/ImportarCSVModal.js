@@ -12,13 +12,13 @@ export default function ImportarCSVModal({
   const [loading, setLoading] = useState(false);
 
   const mensajesPrevios = {
-    porcinos: '⚠️ IMPORTANTE: Antes de importar porcinos, verifique que los clientes propietarios existan en la pestaña "Clientes".\n\nSi un porcino no tiene cliente asociado válido, se omitirá y se mostrará un error.',
+    porcinos: '📋 Nota: La columna "clienteCedula" es opcional. Si se deja vacía o el cliente no existe, el porcino se importará sin cliente asignado.',
     clientes: 'Asegúrese de que el archivo CSV tenga las columnas: cedula, nombres, apellidos, telefono, direccion',
     alimentaciones: 'Asegúrese de que el archivo CSV tenga las columnas: id, nombre, descripcion, cantidadLibras'
-  };
+};
 
   const plantillas = {
-    porcinos: 'identificacion,raza,edad,peso,clienteCedula\nPO001,1,12,150,1234567890\nPO002,2,8,120,1234567890\nPO003,3,6,100,',
+    porcinos: 'identificacion,raza,edad,peso,clienteCedula\nPO001,1,12,150,1234567890\nPO002,2,8,120,1234567890\nPO003,3,6,100,\nPO004,1,10,140,',
     clientes: 'cedula,nombres,apellidos,telefono,direccion\n1234567890,Juan,Pérez,3001234567,Calle 123',
     alimentaciones: 'id,nombre,descripcion,cantidadLibras\nAL001,Concentrado Premium,Alimento balanceado,500'
   };
@@ -86,28 +86,42 @@ export default function ImportarCSVModal({
       }
 
       // Mostrar resumen de importación
-      const { exitosos, errores, detalleErrores } = result;
-      
-      let mensaje = `✅ Importados: ${exitosos}`;
-      if (errores > 0) {
-        mensaje += `\n❌ Omitidos por errores: ${errores}`;
-        if (detalleErrores && detalleErrores.length > 0) {
-          mensaje += '\n\nErrores encontrados:\n';
-          detalleErrores.slice(0, 5).forEach(e => {
-            mensaje += `• ${e}\n`;
-          });
-          if (detalleErrores.length > 5) {
-            mensaje += `... y ${detalleErrores.length - 5} errores más`;
-          }
-        }
-      }
+        const { exitosos, errores, detalleErrores, advertencias } = result;
 
-      await Swal.fire({
+        let mensaje = `✅ Importados: ${exitosos}`;
+
+        // Mostrar advertencias (no son errores graves)
+        if (advertencias && advertencias.length > 0) {
+        mensaje += `\n\n⚠️ Advertencias (${advertencias.length}):\n`;
+        advertencias.slice(0, 3).forEach(a => {
+            mensaje += `• ${a}\n`;
+        });
+        if (advertencias.length > 3) {
+            mensaje += `... y ${advertencias.length - 3} advertencias más`;
+        }
+        }
+
+        // Mostrar errores que impidieron importación
+        if (errores > 0) {
+        mensaje += `\n\n❌ Omitidos por errores: ${errores}`;
+        if (detalleErrores && detalleErrores.length > 0) {
+            mensaje += '\n\nErrores encontrados:\n';
+            detalleErrores.slice(0, 3).forEach(e => {
+            mensaje += `• ${e}\n`;
+            });
+            if (detalleErrores.length > 3) {
+            mensaje += `... y ${detalleErrores.length - 3} errores más`;
+            }
+        }
+        }
+
+        await Swal.fire({
         title: exitosos > 0 ? '¡Importación completada!' : 'Importación con errores',
         text: mensaje,
-        icon: exitosos > 0 ? 'success' : 'warning',
+        icon: exitosos > 0 ? (advertencias && advertencias.length > 0 ? 'warning' : 'success') : 'error',
         confirmButtonText: 'Aceptar'
-      });
+        });
+
 
       if (exitosos > 0) {
         onImportSuccess?.();

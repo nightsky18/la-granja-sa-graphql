@@ -107,11 +107,15 @@ async function importarClientes(registros) {
 }
 
 async function importarPorcinos(registros) {
+     console.log('📦 Iniciando importación de', registros.length, 'porcinos');
   let exitosos = 0;
   let errores = 0;
   const detalleErrores = [];
+  const advertencias = [];
 
   for (const [index, row] of registros.entries()) {
+    let porcinoImportado = false; // Flag para saber si se importó el porcino
+    
     try {
       // Limpiar espacios en blanco de las claves del CSV
       const cleanRow = {};
@@ -150,15 +154,19 @@ async function importarPorcinos(registros) {
 
       // Buscar cliente por cédula (OPCIONAL)
       let clienteId = null;
+      let clienteNoEncontrado = false;
+      
       if (clienteCedula && clienteCedula.trim()) {
         const cliente = await Cliente.findOne({ cedula: clienteCedula.trim() });
-        if (!cliente) {
-          throw new Error(`Fila ${index + 2}: Cliente con cédula "${clienteCedula}" no existe. Verifique que el cliente esté registrado en la pestaña Clientes.`);
+        if (cliente) {
+          clienteId = cliente._id;
+        } else {
+          // Marcar que el cliente no fue encontrado
+          clienteNoEncontrado = true;
         }
-        clienteId = cliente._id;
       }
 
-      // Crear porcino
+      // Crear porcino (con o sin cliente)
       await Porcino.create({
         identificacion: identificacion.trim(),
         raza: razaNum,
@@ -168,19 +176,33 @@ async function importarPorcinos(registros) {
         historialAlimentacion: []
       });
 
+      porcinoImportado = true;
       exitosos++;
 
+      // ⚠️ DESPUÉS de importar exitosamente, agregar advertencia si corresponde
+      if (clienteNoEncontrado) {
+        advertencias.push(`Fila ${index + 2}: Cliente con cédula "${clienteCedula.trim()}" no existe. Porcino "${identificacion.trim()}" importado sin cliente asignado.`);
+      }
+
     } catch (err) {
-      errores++;
-      if (err.code === 11000) {
-        detalleErrores.push(`Fila ${index + 2}: La identificación "${row.identificacion}" ya existe en la base de datos`);
-      } else {
-        detalleErrores.push(err.message);
+      // Solo contar como error si NO se importó el porcino
+      if (!porcinoImportado) {
+        errores++;
+        if (err.code === 11000) {
+          detalleErrores.push(`Fila ${index + 2}: La identificación "${row.identificacion}" ya existe en la base de datos`);
+        } else {
+          detalleErrores.push(err.message);
+        }
       }
     }
   }
 
-  return { exitosos, errores, detalleErrores };
+  return { 
+    exitosos, 
+    errores, 
+    detalleErrores,
+    advertencias
+  };
 }
 
 async function importarAlimentaciones(registros) {
